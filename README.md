@@ -329,7 +329,7 @@ orchestration, version-controlled with the rest of the DAG.
 ```
 airflow-hosted-on-aca/
 ├─ airflow/
-│  ├─ dags/                 # aca_jobs_example, aca_jobs_pipeline (parameterized)
+│  ├─ dags/                 # aca_jobs_example, aca_jobs_pipeline, contoso_sales (demo)
 │  ├─ plugins/
 │  │  ├─ operators/         # AzureContainerAppsJobOperator + ARM/auth helpers
 │  │  └─ triggers/          # async trigger for deferrable execution
@@ -383,6 +383,27 @@ live ACA execution, deferral frees worker slots while jobs run, and ARM tokens
 refresh on `401` mid-poll. The runs collectively drove **100+ successful ACA Job
 executions** concurrently with no throttling errors.
 
+### Live `azd up` deployment
+
+The full `azd up` path was also run against a live subscription (North Central US,
+Contributor-only account using `ASSIGN_JOBS_ROLE=false`). Confirmed:
+
+- ✅ `azd up` provisions the whole stack green: Log Analytics, ACA environment,
+  managed identity, Postgres Flexible Server, storage + file share, the three
+  Airflow apps, and the sample ACA Job.
+- ✅ The `postprovision` hook uploads DAGs + plugins to the file share.
+- ✅ Airflow `/health` returns `200` with metadatabase, scheduler, and triggerer
+  all healthy.
+- ✅ **Zero DAG import errors**; the operator plugin and all DAGs load on the
+  deployed stack.
+- ✅ The stable REST API accepts basic auth, so an external system can trigger a
+  DAG run (validated by POSTing to `/api/v1/dags/.../dagRuns`).
+
+> Starting an actual job additionally requires the managed identity's role
+> assignment (see [Permissions & role assignment](#permissions--role-assignment)).
+> With `ASSIGN_JOBS_ROLE=false`, grant it once via the printed `grantRoleCommand`;
+> the operator's job-start/poll path itself is covered by the live runs above.
+
 ---
 
 ## Notes & caveats
@@ -403,8 +424,15 @@ executions** concurrently with no throttling errors.
 - **Least privilege:** the managed identity gets `Contributor` on the resource
   group for simplicity. Scope it to a custom role limited to
   `Microsoft.App/jobs/*/start` + read for production.
-- The Bicep is validated by `az bicep build` in CI; a live `azd up` deploy incurs
-  Azure costs and is not run in CI.
+- **Task logs in the UI:** with LocalExecutor across separate Container Apps, the
+  web app can't always reach the scheduler replica that served a task's log, so
+  individual task logs may not render in the UI (the run state is still accurate).
+  For durable, UI-visible logs, configure Airflow **remote logging** to Azure Blob
+  Storage (`AIRFLOW__LOGGING__REMOTE_LOGGING=true` + a blob connection), or use
+  Celery/Kubernetes executors.
+- The Bicep is validated by `az bicep build` in CI. A live `azd up` deploy has been
+  run manually (see [Live `azd up` deployment](#live-azd-up-deployment)) but is not
+  run in CI because it incurs Azure costs.
 
 ## License
 

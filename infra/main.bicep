@@ -38,7 +38,9 @@ var storageAccountName = toLower('st${take(suffix, 22)}')
 var shareName = 'airflow-shared'
 var pgServerName = '${namePrefix}-pg-${suffix}'
 var pgDatabaseName = 'airflow'
-var sampleJobName = '${namePrefix}-sample-job-${suffix}'
+// ACA Job names are capped at 32 chars. Keep this well under the limit even
+// with a 12-char namePrefix: 12 (prefix) + 5 ('-job-') + 10 (suffix) = 27.
+var sampleJobName = '${namePrefix}-job-${take(suffix, 10)}'
 
 var pipRequirements = 'azure-identity>=1.16.0 requests>=2.31.0'
 var sqlAlchemyConn = 'postgresql+psycopg2://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${pgDatabaseName}?sslmode=require'
@@ -187,6 +189,9 @@ var airflowEnv = [
   { name: 'AIRFLOW__OPERATORS__DEFAULT_DEFERRABLE', value: 'true' }
   { name: 'AIRFLOW__CORE__DAGS_FOLDER', value: '/opt/airflow/shared/dags' }
   { name: 'AIRFLOW__CORE__PLUGINS_FOLDER', value: '/opt/airflow/shared/plugins' }
+  // Accept HTTP basic auth on the stable REST API (in addition to the browser
+  // session) so external systems can trigger DAGs with a username/password.
+  { name: 'AIRFLOW__API__AUTH_BACKENDS', value: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session' }
   { name: '_PIP_ADDITIONAL_REQUIREMENTS', value: pipRequirements }
   // Point the operator at the sample job (overridable per-DAG at trigger time).
   { name: 'AIRFLOW_VAR_AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }

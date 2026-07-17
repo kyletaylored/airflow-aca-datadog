@@ -4,12 +4,16 @@
 # postprovision hook; safe to re-run any time you change DAGs/plugins.
 $ErrorActionPreference = 'Stop'
 
-if (-not $env:STORAGE_ACCOUNT_NAME) { throw 'STORAGE_ACCOUNT_NAME not set (is the deployment finished?)' }
-if (-not $env:FILE_SHARE_NAME) { throw 'FILE_SHARE_NAME not set' }
+# azd exposes bicep outputs to hooks using their original (camelCase) names.
+# Fall back to UPPER_SNAKE variants in case a future azd version converts them.
+$account = if ($env:storageAccountName) { $env:storageAccountName } else { $env:STORAGE_ACCOUNT_NAME }
+$share   = if ($env:fileShareName)      { $env:fileShareName }      else { $env:FILE_SHARE_NAME }
+$webUrl  = if ($env:airflowWebUrl)      { $env:airflowWebUrl }      else { $env:AIRFLOW_WEB_URL }
+
+if (-not $account) { throw 'storageAccountName not set (is the deployment finished?)' }
+if (-not $share) { throw 'fileShareName not set' }
 
 $root = Split-Path -Parent $PSScriptRoot
-$account = $env:STORAGE_ACCOUNT_NAME
-$share = $env:FILE_SHARE_NAME
 
 Write-Host "Uploading DAGs and plugins to share '$share' on '$account'..."
 
@@ -25,4 +29,4 @@ az storage file upload-batch --account-name $account --account-key $key `
   --destination "$share/plugins" --source "$root/airflow/plugins" --pattern "*.py" --only-show-errors | Out-Null
 
 Write-Host "Done. Airflow will pick up the DAGs within a minute."
-if ($env:AIRFLOW_WEB_URL) { Write-Host "Web UI: $($env:AIRFLOW_WEB_URL)" }
+if ($webUrl) { Write-Host "Web UI: $webUrl" }

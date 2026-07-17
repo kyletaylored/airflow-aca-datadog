@@ -4,6 +4,12 @@
 # postprovision hook; safe to re-run any time you change DAGs/plugins.
 set -eu
 
+# azd exposes bicep outputs to hooks using their original (camelCase) names.
+# Fall back to UPPER_SNAKE variants in case a future azd version converts them.
+STORAGE_ACCOUNT_NAME="${storageAccountName:-${STORAGE_ACCOUNT_NAME:-}}"
+FILE_SHARE_NAME="${fileShareName:-${FILE_SHARE_NAME:-}}"
+AIRFLOW_WEB_URL="${airflowWebUrl:-${AIRFLOW_WEB_URL:-}}"
+
 : "${STORAGE_ACCOUNT_NAME:?STORAGE_ACCOUNT_NAME not set (is the deployment finished?)}"
 : "${FILE_SHARE_NAME:?FILE_SHARE_NAME not set}"
 
