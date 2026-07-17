@@ -19,6 +19,9 @@
     },
     "airflowAdminPassword": {
       "value": "${AIRFLOW_ADMIN_PASSWORD}"
+    },
+    "assignJobsRole": {
+      "value": "${ASSIGN_JOBS_ROLE=true}"
     }
   }
 }

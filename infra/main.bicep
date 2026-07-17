@@ -26,6 +26,10 @@ param airflowAdminUser string = 'airflow'
 @description('Initial Airflow web UI admin password.')
 param airflowAdminPassword string
 
+@description('Whether to create the Contributor role assignment for the managed identity. Requires the deployer to have Owner or User Access Administrator on the scope. Set to "false" if you lack role-assignment rights (common on locked-down/internal subscriptions) and have an admin grant the role separately using the command in the deployment outputs.')
+@allowed([ 'true', 'false' ])
+param assignJobsRole string = 'true'
+
 var suffix = uniqueString(subscription().subscriptionId, resourceGroup().id)
 var workspaceName = '${namePrefix}-law-${suffix}'
 var managedEnvName = '${namePrefix}-env-${suffix}'
@@ -65,7 +69,11 @@ resource contributorRoleDef 'Microsoft.Authorization/roleDefinitions@2022-04-01'
   scope: subscription()
   name: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
 }
-resource jobsRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Conditional: creating a role assignment needs Owner or User Access Administrator.
+// If the deployer lacks that (common on internal/locked-down subscriptions), set
+// assignJobsRole=false — the stack still deploys and an admin grants the role
+// afterward with the command surfaced in the deployment outputs.
+resource jobsRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignJobsRole == 'true') {
   name: guid(resourceGroup().id, identity.id, contributorRoleDef.id)
   properties: {
     roleDefinitionId: contributorRoleDef.id
@@ -339,3 +347,8 @@ output managedEnvironmentName string = managedEnvironment.name
 output storageAccountName string = storage.name
 output fileShareName string = shareName
 output airflowIdentityClientId string = identity.properties.clientId
+output airflowIdentityPrincipalId string = identity.properties.principalId
+output jobsRoleAssigned bool = assignJobsRole == 'true'
+// If assignJobsRole=false, an admin (Owner/User Access Administrator) grants the
+// role afterward by running this exact command:
+output grantRoleCommand string = 'az role assignment create --assignee-object-id ${identity.properties.principalId} --assignee-principal-type ServicePrincipal --role Contributor --scope ${resourceGroup().id}'

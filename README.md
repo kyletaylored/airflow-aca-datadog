@@ -80,6 +80,12 @@ az account get-access-token --resource https://management.azure.com --query acce
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 - [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) (used by the post-deploy upload hook)
 - An Azure subscription and `azd auth login`
+- **Permissions:** the deploy creates a **role assignment** (grants the managed
+  identity Contributor so it can start jobs), which requires you to have **Owner**
+  or **User Access Administrator** on the target scope. Plain **Contributor is not
+  enough** to assign roles. On locked-down or internal subscriptions this step
+  often fails — see [Permissions & role assignment](#permissions--role-assignment)
+  for the one-flag workaround.
 
 ### Steps
 
@@ -124,6 +130,80 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `NAME_PREFIX` | `aflo` | Prefix for resource names |
 | `POSTGRES_ADMIN_USER` | `airflowadmin` | Postgres admin login |
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
+| `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
+
+---
+
+## Permissions & role assignment
+
+The template gives the Airflow managed identity permission to start/read ACA Jobs
+by creating a **Contributor role assignment** scoped to the resource group.
+Creating any role assignment requires the deployer to hold **Owner** or **User
+Access Administrator** — **Contributor alone cannot assign roles**. This is the
+most common reason `azd up` fails on internal or policy-restricted subscriptions.
+
+Symptoms if you don't have the rights:
+
+- `AuthorizationFailed` / `does not have authorization to perform action
+  'Microsoft.Authorization/roleAssignments/write'`, or
+- a policy denial on role assignments.
+
+**You don't know your role?** Check it:
+
+```bash
+# Your role on the subscription (or scope to the RG with --scope)
+az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv) \
+  --query "[].roleDefinitionName" -o tsv
+```
+
+If you see `Owner` or `User Access Administrator`, the default deploy works as-is.
+If you only see `Contributor` (or nothing), use one of the options below.
+
+### Option A — deploy without the role, have an admin grant it (works on any sub)
+
+Skip the role assignment so the whole stack still deploys, then have someone with
+Owner/UAA grant the role once:
+
+```bash
+azd env set ASSIGN_JOBS_ROLE false
+azd up
+```
+
+When it finishes, the deployment prints a ready-to-run command (also visible via
+`azd env get-values` → `GRANT_ROLE_COMMAND`). An admin runs it once:
+
+```bash
+# Printed as the grantRoleCommand output — an Owner/UAA runs this:
+az role assignment create \
+  --assignee-object-id <airflowIdentityPrincipalId> \
+  --assignee-principal-type ServicePrincipal \
+  --role Contributor \
+  --scope /subscriptions/<sub>/resourceGroups/<rg>
+```
+
+Airflow can start jobs the moment the assignment exists — no redeploy needed.
+
+> **Least privilege:** you can grant a narrower built-in role instead of
+> Contributor. `Container Apps Jobs Operator` (or `Azure Container Apps Contributor`)
+> is enough to start/read job executions. Swap `--role` accordingly.
+
+### Option B — elevate first (if you have eligible access via PIM)
+
+On subscriptions where you're an **eligible** Owner/UAA via Privileged Identity
+Management, activate the role first, then deploy normally:
+
+1. Azure portal → **Privileged Identity Management** → activate **Owner** or
+   **User Access Administrator** on the target scope.
+2. `azd up` (leave `ASSIGN_JOBS_ROLE=true`).
+
+### Note for internal / enterprise subscriptions
+
+Internal Microsoft (and many enterprise) subscriptions frequently (a) grant users
+only Contributor, and/or (b) block role assignments via Azure Policy, and/or (c)
+restrict public networking and regions. Option A above sidesteps (a)/(b) entirely
+by decoupling the role grant from the deploy. For (c), deploy into a resource
+group/region your subscription allows; the demo defaults use public networking and
+can be locked down for production (see [Notes & caveats](#notes--caveats)).
 
 ---
 
