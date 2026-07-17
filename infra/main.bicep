@@ -59,11 +59,16 @@ resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
 
 // Let the identity start/read ACA Job executions in this resource group.
 // Contributor is broad; scope to a custom role for least privilege in production.
-var contributorRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-b36b-1e0c5c08f87b')
+// Reference the built-in role by its well-known ID via a lookup so the GUID
+// can't be mistyped (Contributor = b24988ac-6180-42a0-ab88-20f7382dd24c).
+resource contributorRoleDef 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+  scope: subscription()
+  name: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+}
 resource jobsRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, identity.id, contributorRoleId)
+  name: guid(resourceGroup().id, identity.id, contributorRoleDef.id)
   properties: {
-    roleDefinitionId: contributorRoleId
+    roleDefinitionId: contributorRoleDef.id
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
   }
