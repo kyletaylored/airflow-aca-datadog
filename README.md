@@ -131,6 +131,51 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `POSTGRES_ADMIN_USER` | `airflowadmin` | Postgres admin login |
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
 | `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
+| `DD_API_KEY` | _(empty)_ | Datadog API key. Setting it enables OTel traces + Data Jobs Monitoring (see [Datadog](#datadog-opentelemetry-traces--data-jobs-monitoring)) |
+| `DD_SITE` | `datadoghq.com` | Datadog site (`us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`, …) |
+| `DD_ENV` | `airflow-aca` | Datadog `env` tag on traces and the OpenLineage namespace |
+
+---
+
+## Datadog: OpenTelemetry traces + Data Jobs Monitoring
+
+Set a Datadog API key before `azd up` and the deploy wires up two things:
+
+```bash
+azd env set DD_API_KEY "<your-datadog-api-key>"
+azd env set DD_SITE    "datadoghq.com"     # your Datadog site
+azd env set DD_ENV     "airflow-aca"       # env tag / OpenLineage namespace
+azd up
+```
+
+**1. Traces via the ACA managed OpenTelemetry agent.** The Container Apps
+environment's [managed OTel agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
+is configured with a Datadog destination for traces. Each Airflow component runs
+under `opentelemetry-instrument`, which picks up the OTLP/gRPC endpoint ACA
+injects. You get:
+
+- `airflow-webserver`: Flask request spans (UI + REST API; `/health` excluded).
+- `airflow-scheduler`: **one trace per DAG run**, with a root span (`airflow.dag_run`) and
+  a child span per task (`airflow.task`) carrying dag/run/task ids, try number, and
+  state (`airflow/plugins/otel_dag_run_traces.py`). The operator's ARM API calls
+  appear as `requests` spans.
+- `airflow-triggerer`: the deferred job-polling ARM calls.
+
+> Airflow 2.10's built-in `[traces]` exporter isn't used because it is hard-coded
+> to OTLP/**HTTP**, and the managed agent only accepts OTLP/**gRPC**. For the same
+> reason the web app runs gunicorn directly: `airflow webserver` spawns gunicorn as
+> a subprocess, which `opentelemetry-instrument` intentionally leaves uninstrumented.
+
+**2. OpenLineage → [Data Jobs Monitoring](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/).**
+At startup the OpenLineage provider is upgraded from the image's 1.11.0 to
+`2.8.0` (Datadog's recommended version for Airflow 2.10) and configured with the
+native `datadog` transport (`OPENLINEAGE__TRANSPORT__TYPE=datadog`, `DD_API_KEY`,
+`DD_SITE`, `OPENLINEAGE_NAMESPACE=$DD_ENV`). DAG and task runs appear under
+**Data Observability → Jobs Monitoring** with `env:$DD_ENV`.
+
+Leave `DD_API_KEY` empty to deploy without any of this. The managed agent has no
+Key Vault integration, so the key is passed as a secure deployment parameter, and
+the apps reference it as a Container Apps secret.
 
 ---
 
@@ -332,14 +377,15 @@ airflow-hosted-on-aca/
 │  ├─ dags/                 # aca_jobs_example, aca_jobs_pipeline, contoso_sales (demo)
 │  ├─ plugins/
 │  │  ├─ operators/         # AzureContainerAppsJobOperator + ARM/auth helpers
-│  │  └─ triggers/          # async trigger for deferrable execution
+│  │  ├─ triggers/          # async trigger for deferrable execution
+│  │  └─ otel_dag_run_traces.py  # DAG run -> OTel trace listener (Datadog)
 │  └─ requirements.txt      # azure-identity, requests
 ├─ infra/
 │  ├─ main.bicep            # all Azure resources
 │  └─ main.parameters.json  # azd → bicep parameter mapping
 ├─ scripts/
 │  ├─ upload-dags.sh / .ps1 # postprovision: upload DAGs+plugins to the share
-├─ tests/                   # 35 offline unit tests (mocked ARM, no Azure)
+├─ tests/                   # 43 offline unit tests (mocked ARM, no Azure)
 ├─ Dockerfile               # stock apache/airflow + operator + DAGs (local stack)
 ├─ docker-compose.yml       # local Postgres + web + scheduler + triggerer
 ├─ azure.yaml               # azd template definition + hooks

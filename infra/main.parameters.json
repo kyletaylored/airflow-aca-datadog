@@ -22,6 +22,15 @@
     },
     "assignJobsRole": {
       "value": "${ASSIGN_JOBS_ROLE=true}"
+    },
+    "datadogApiKey": {
+      "value": "${DD_API_KEY}"
+    },
+    "datadogSite": {
+      "value": "${DD_SITE=datadoghq.com}"
+    },
+    "datadogEnv": {
+      "value": "${DD_ENV=airflow-aca}"
     }
   }
 }
