@@ -129,6 +129,9 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `AIRFLOW_ADMIN_PASSWORD` | _(required)_ | Airflow web UI admin password |
 | `NAME_PREFIX` | `aflo` | Prefix for resource names |
 | `POSTGRES_ADMIN_USER` | `airflowadmin` | Postgres admin login |
+| `POSTGRES_SKU_NAME` / `POSTGRES_SKU_TIER` | `Standard_B1ms` / `Burstable` | Postgres size (B1ms is the smallest managed option) |
+| `POSTGRES_ZONE` | _(Azure picks)_ | Pin an availability zone (`1`/`2`/`3`) if creation fails with `SkuNotAvailable` |
+| `POSTGRES_LOCATION` | _(same as `AZURE_LOCATION`)_ | Put only Postgres in another region if the SKU isn't offered in yours |
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
 | `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
 | `DD_API_KEY` | _(empty)_ | Datadog API key. Setting it enables OTel traces + Data Jobs Monitoring (see [Datadog](#datadog-opentelemetry-traces--data-jobs-monitoring)) |

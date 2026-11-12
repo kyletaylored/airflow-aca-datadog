@@ -11,6 +11,18 @@
     "postgresAdminUser": {
       "value": "${POSTGRES_ADMIN_USER=airflowadmin}"
     },
+    "postgresSkuName": {
+      "value": "${POSTGRES_SKU_NAME=Standard_B1ms}"
+    },
+    "postgresSkuTier": {
+      "value": "${POSTGRES_SKU_TIER=Burstable}"
+    },
+    "postgresLocation": {
+      "value": "${POSTGRES_LOCATION}"
+    },
+    "postgresZone": {
+      "value": "${POSTGRES_ZONE}"
+    },
     "postgresAdminPassword": {
       "value": "${POSTGRES_ADMIN_PASSWORD}"
     },

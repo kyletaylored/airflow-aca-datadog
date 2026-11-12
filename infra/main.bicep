@@ -15,6 +15,20 @@ param sampleJobImage string = 'mcr.microsoft.com/k8se/quickstart-jobs:latest'
 @description('Postgres administrator login.')
 param postgresAdminUser string = 'airflowadmin'
 
+@description('Postgres Flexible Server SKU. Standard_B1ms is the smallest managed option.')
+param postgresSkuName string = 'Standard_B1ms'
+
+@description('Postgres Flexible Server tier matching postgresSkuName (Burstable, GeneralPurpose, MemoryOptimized).')
+@allowed([ 'Burstable', 'GeneralPurpose', 'MemoryOptimized' ])
+param postgresSkuTier string = 'Burstable'
+
+@description('Region for Postgres only. Defaults to the main location; override when the SKU is not offered there (SkuNotAvailable).')
+param postgresLocation string = ''
+
+@description('Availability zone for Postgres ("1", "2", "3"). Empty lets Azure choose; pin one when a zone lacks capacity (SkuNotAvailable).')
+@allowed([ '', '1', '2', '3' ])
+param postgresZone string = ''
+
 @secure()
 @description('Postgres administrator password (set via: azd env set POSTGRES_ADMIN_PASSWORD <value>).')
 param postgresAdminPassword string
@@ -146,13 +160,14 @@ resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-0
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
   name: pgServerName
-  location: location
+  location: empty(postgresLocation) ? location : postgresLocation
   sku: {
-    name: 'Standard_B1ms'
-    tier: 'Burstable'
+    name: postgresSkuName
+    tier: postgresSkuTier
   }
   properties: {
     version: '16'
+    availabilityZone: empty(postgresZone) ? null : postgresZone
     administratorLogin: postgresAdminUser
     administratorLoginPassword: postgresAdminPassword
     storage: { storageSizeGB: 32 }
@@ -307,9 +322,14 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'airflow-web'
           image: airflowImage
-          command: [ '/bin/bash', '-c' ]
+          // No `command` override: it would replace the image ENTRYPOINT
+          // (dumb-init + /entrypoint), which is what installs
+          // _PIP_ADDITIONAL_REQUIREMENTS. Passing `bash -c ...` as args lets the
+          // entrypoint run first, then exec our script.
           // Migrate the DB and create the admin user on first boot, then serve.
           args: [
+            'bash'
+            '-c'
             'airflow db migrate && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && ${webServeCmd}'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
@@ -344,8 +364,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'airflow-scheduler'
           image: airflowImage
-          command: [ '/bin/bash', '-c' ]
-          args: [ 'exec ${otelWrap}airflow scheduler' ]
+          args: [ 'bash', '-c', 'exec ${otelWrap}airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
           env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-scheduler'))
           volumeMounts: sharedVolumeMounts
@@ -378,8 +397,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'airflow-triggerer'
           image: airflowImage
-          command: [ '/bin/bash', '-c' ]
-          args: [ 'exec ${otelWrap}airflow triggerer' ]
+          args: [ 'bash', '-c', 'exec ${otelWrap}airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-triggerer'))
           volumeMounts: sharedVolumeMounts
