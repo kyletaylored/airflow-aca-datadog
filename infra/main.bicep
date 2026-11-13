@@ -290,11 +290,12 @@ var datadogEnvVars = enableDatadog ? [
   // Airflow 3 reads the standard OTEL_EXPORTER_OTLP_ENDPOINT/PROTOCOL that ACA
   // injects (gRPC), so turning tracing on is all it takes.
   { name: 'AIRFLOW__TRACES__OTEL_ON', value: 'True' }
+  // Per Datadog's ACA managed-agent guide: OTLP over gRPC (the only protocol
+  // the agent accepts). ACA injects OTEL_EXPORTER_OTLP_ENDPOINT itself.
+  { name: 'OTEL_EXPORTER_OTLP_PROTOCOL', value: 'grpc' }
   { name: 'OTEL_TRACES_EXPORTER', value: 'otlp' }
   { name: 'OTEL_METRICS_EXPORTER', value: otelMetrics ? 'otlp' : 'none' }
   { name: 'OTEL_LOGS_EXPORTER', value: otelLogs ? 'otlp' : 'none' }
-  // Overrides the attributes ACA injects, so Datadog gets env / unified tagging.
-  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'deployment.environment=${datadogEnv},deployment.environment.name=${datadogEnv},service.namespace=airflow,cloud.provider=azure,cloud.platform=azure_container_apps' }
   ...(otelMetrics ? [ { name: 'AIRFLOW__METRICS__OTEL_ON', value: 'True' } ] : [])
   // Airflow has no native OTel logs; plugins/otel_logging_config.py adds an OTLP
   // log handler to Airflow's logging config (records carry trace/span ids).
@@ -304,7 +305,15 @@ var datadogEnvVars = enableDatadog ? [
 // Per-component env: OTel service name (when Datadog is on) and, for every
 // component except the api-server itself, where the Execution API lives (tasks
 // started by the scheduler, triggers and DAG parsing all report through it).
-func otelServiceEnv(enabled bool, service string) array => enabled ? [ { name: 'OTEL_SERVICE_NAME', value: service } ] : []
+// OTEL_RESOURCE_ATTRIBUTES per Datadog's ACA managed-agent guide: cloud.provider,
+// cloud.platform and the app's cloud.resource_id are required; env/version
+// come from deployment.environment.name / service.version.
+func otelServiceEnv(enabled bool, service string, resourceId string, ddEnv string, version string) array => enabled ? [
+  { name: 'OTEL_SERVICE_NAME', value: service }
+  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
+] : []
+var airflowVersion = last(split(airflowImage, ':'))
+var appIdPrefix = '${resourceGroup().id}/providers/Microsoft.App/containerApps'
 var executionApiEnv = [
   { name: 'AIRFLOW__CORE__EXECUTION_API_SERVER_URL', value: 'https://${airflowWeb.properties.configuration.ingress.fqdn}/execution/' }
 ]
@@ -358,7 +367,7 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
             'airflow db migrate && (airflow fab-db migrate || true) && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && exec airflow api-server --host 0.0.0.0 --port 8080'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server'))
+          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -392,7 +401,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler'))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -426,7 +435,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer'))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -460,7 +469,7 @@ resource airflowDagProcessor 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow dag-processor' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor'))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
