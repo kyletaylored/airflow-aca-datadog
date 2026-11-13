@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
-from airflow.models.param import Param
+try:  # Airflow 3
+    from airflow.sdk import DAG, Param
+except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stack)
+    from airflow.models.param import Param
 
-from airflow import DAG
+    from airflow import DAG
 
 try:
     # In a real Airflow deployment the `plugins/` directory is on sys.path,
@@ -28,8 +32,10 @@ with DAG(
     dag_id="aca_jobs_example",
     description="Run any ACA Job from Airflow — fill in the form to specify your workload.",
     start_date=datetime(2026, 1, 1),
-    schedule=None,
+    # Manual by default; the azd deploy sets AIRFLOW_DEMO_SCHEDULE (e.g. */5 * * * *).
+    schedule=os.environ.get("AIRFLOW_DEMO_SCHEDULE") or None,
     catchup=False,
+    max_active_runs=1,
     is_paused_upon_creation=False,
     render_template_as_native_obj=True,
     tags=["aca", "jobs"],

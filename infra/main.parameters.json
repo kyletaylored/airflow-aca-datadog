@@ -11,6 +11,18 @@
     "postgresAdminUser": {
       "value": "${POSTGRES_ADMIN_USER=airflowadmin}"
     },
+    "postgresSkuName": {
+      "value": "${POSTGRES_SKU_NAME=Standard_B1ms}"
+    },
+    "postgresSkuTier": {
+      "value": "${POSTGRES_SKU_TIER=Burstable}"
+    },
+    "postgresLocation": {
+      "value": "${POSTGRES_LOCATION}"
+    },
+    "postgresZone": {
+      "value": "${POSTGRES_ZONE}"
+    },
     "postgresAdminPassword": {
       "value": "${POSTGRES_ADMIN_PASSWORD}"
     },
@@ -20,8 +32,29 @@
     "airflowAdminPassword": {
       "value": "${AIRFLOW_ADMIN_PASSWORD}"
     },
+    "airflowSecretKey": {
+      "value": "${AIRFLOW_SECRET_KEY}"
+    },
     "assignJobsRole": {
       "value": "${ASSIGN_JOBS_ROLE=true}"
+    },
+    "resourceTags": {
+      "value": "${RESOURCE_TAGS}"
+    },
+    "datadogApiKey": {
+      "value": "${DD_API_KEY}"
+    },
+    "datadogSite": {
+      "value": "${DD_SITE=datadoghq.com}"
+    },
+    "demoDagSchedule": {
+      "value": "${DEMO_DAG_SCHEDULE=*/5 * * * *}"
+    },
+    "datadogOtelSignals": {
+      "value": "${TELEMETRY_SIGNALS=traces,metrics,logs}"
+    },
+    "datadogEnv": {
+      "value": "${DD_ENV=airflow-aca}"
     }
   }
 }

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 
-from airflow.decorators import task
-from airflow.models.dag import DAG
-from airflow.models.param import Param
-from airflow.operators.empty import EmptyOperator
+try:  # Airflow 3
+    from airflow.providers.standard.operators.empty import EmptyOperator
+    from airflow.sdk import DAG, Param, task
+except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stack)
+    from airflow.decorators import task
+    from airflow.models.dag import DAG
+    from airflow.models.param import Param
+    from airflow.operators.empty import EmptyOperator
 
 try:
     from operators.azure_container_apps_job_operator import (
@@ -29,8 +34,10 @@ with DAG(
     dag_id="aca_jobs_pipeline",
     description="Dependency + parallel fan-out + retries over ACA Jobs (deferrable).",
     start_date=datetime(2026, 1, 1),
-    schedule=None,
+    # Manual by default; the azd deploy sets AIRFLOW_DEMO_SCHEDULE (e.g. */5 * * * *).
+    schedule=os.environ.get("AIRFLOW_DEMO_SCHEDULE") or None,
     catchup=False,
+    max_active_runs=1,
     is_paused_upon_creation=False,
     render_template_as_native_obj=True,
     default_args={

@@ -18,6 +18,15 @@ from typing import Any, Callable
 import requests
 from airflow.exceptions import AirflowException
 
+
+def _get_connection(conn_id: str):
+    """Look up an Airflow Connection (Task SDK on Airflow 3, BaseHook on 2.x)."""
+    try:
+        from airflow.sdk import BaseHook
+    except ImportError:  # pragma: no cover - Airflow 2.x
+        from airflow.hooks.base import BaseHook
+    return BaseHook.get_connection(conn_id)
+
 DEFAULT_API_VERSION = "2024-03-01"
 
 # Identifies executions started by this operator on the ARM Jobs API, so the
@@ -152,9 +161,7 @@ def token_from_connection(
     Tenant/subscription/resource-group can also be stored in the extra so DAGs
     need even less inline config (see ``connection_defaults``).
     """
-    from airflow.hooks.base import BaseHook
-
-    conn = BaseHook.get_connection(conn_id)
+    conn = _get_connection(conn_id)
     extra = _conn_extra(conn)
 
     access_token = extra.get("access_token")
@@ -200,9 +207,7 @@ def connection_defaults(conn_id: str | None) -> dict[str, str]:
     if not conn_id:
         return {}
     try:
-        from airflow.hooks.base import BaseHook
-
-        extra = _conn_extra(BaseHook.get_connection(conn_id))
+        extra = _conn_extra(_get_connection(conn_id))
     except Exception:  # pragma: no cover - connection missing/unreadable
         return {}
     out: dict[str, str] = {}
@@ -385,3 +390,91 @@ def _extract_execution_name(
     if not match:
         return None
     return match.group(1)
+
+
+# --- OpenTelemetry: a client span per HTTP call ---------------------------------
+# Every ARM call (start / poll) and the managed-identity token fetch go through
+# `requests`, so instrumenting it puts each call under Airflow's own `worker.*`
+# (operator) or `trigger.*` (triggerer) span, which are current while
+# execute()/run() runs. No-op unless opentelemetry-instrumentation-requests is
+# installed; spans go to whatever global tracer provider Airflow configured.
+
+_ARM_NAME_SEGMENTS = re.compile(r"/(jobs|executions)/[^/]+", re.IGNORECASE)
+
+
+def arm_resource_name(method: str, url: str) -> str | None:
+    """Low-cardinality name for an ARM call, e.g. ``POST Microsoft.App/jobs/{job}/start``.
+
+    Returns None for non-ARM URLs so they keep the default span naming.
+    """
+    path = url.split("?", 1)[0]
+    if "management.azure.com" not in path or "/providers/" not in path:
+        return None
+    provider_path = path.split("/providers/", 1)[1]
+    templated = _ARM_NAME_SEGMENTS.sub(
+        lambda m: f"/{m.group(1)}/{{{m.group(1).lower().rstrip('s')}}}", provider_path
+    )
+    return f"{method.upper()} {templated}"
+
+
+def _name_arm_span(span: Any, request: Any) -> None:
+    if not span.is_recording():
+        return
+    method, url = request.method or "", request.url or ""
+    name = arm_resource_name(method, url)
+    if name is None and url.split("?", 1)[0].endswith("/msi/token"):
+        name = f"{method.upper()} managed identity token"
+    if name:
+        # Datadog uses `resource.name` as the span's resource (otherwise just "POST").
+        span.set_attribute("resource.name", name)
+
+
+# OpenLineage's Datadog transport also uses `requests`, but its listener emits
+# outside the task span, so each event would become a stray single-span trace.
+_EXCLUDED_URLS = r"data-obs-intake\."
+
+
+def instrument_requests() -> bool:
+    """Turn on `requests` OTel instrumentation once per process; True if active."""
+    try:
+        from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    except ImportError:
+        return False
+    instrumentor = RequestsInstrumentor()
+    if not instrumentor.is_instrumented_by_opentelemetry:
+        instrumentor.instrument(request_hook=_name_arm_span, excluded_urls=_EXCLUDED_URLS)
+    return True
+
+
+instrument_requests()
+
+
+# --- OpenLineage: hand the task's run to the job --------------------------------
+# A job that emits its own OpenLineage events with these as its ParentRunFacet
+# shows up nested under the Airflow task in Datadog (Data Jobs Monitoring and the
+# trace view), the same way the Databricks provider links Databricks runs. The
+# format is '{namespace}/{job_name}/{run_id}', the one dbt-ol reads and the
+# provider's lineage_parent_id / lineage_root_parent_id macros produce.
+
+OPENLINEAGE_PARENT_ENV = "OPENLINEAGE_PARENT_ID"
+OPENLINEAGE_ROOT_PARENT_ENV = "OPENLINEAGE_ROOT_PARENT_ID"
+
+
+def openlineage_parent_env(task_instance: Any, log: Any = None) -> dict[str, str]:
+    """Env vars identifying this task's OpenLineage run; {} without the provider."""
+    try:
+        from airflow.providers.openlineage.plugins.macros import (
+            lineage_parent_id,
+            lineage_root_parent_id,
+        )
+    except ImportError:
+        return {}
+    try:
+        return {
+            OPENLINEAGE_PARENT_ENV: lineage_parent_id(task_instance),
+            OPENLINEAGE_ROOT_PARENT_ENV: lineage_root_parent_id(task_instance),
+        }
+    except Exception as exc:  # lineage must never fail the task
+        if log:
+            log.warning("Not passing OpenLineage parent run to the job: %s", exc)
+        return {}

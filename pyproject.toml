@@ -3,14 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "airflow-hosted-on-aca"
+name = "airflow-aca-datadog"
 version = "0.1.0"
-description = "Self-contained template that hosts Apache Airflow on Azure Container Apps and drives Azure Container Apps Jobs."
+description = "Datadog Data Jobs Monitoring (OpenLineage) and APM (OpenTelemetry) for Apache Airflow on Azure Container Apps."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Hetvi Patel" }]
-keywords = ["airflow", "azure", "container-apps", "aca", "jobs", "orchestration", "azd"]
+authors = [{ name = "Kyle Taylor" }, { name = "Hetvi Patel" }]
+keywords = ["airflow", "azure", "container-apps", "aca", "datadog", "opentelemetry", "openlineage", "azd"]
 dependencies = [
     "apache-airflow>=2.8.0",
     "azure-identity>=1.16.0",
@@ -21,8 +21,9 @@ dependencies = [
 test = ["pytest>=7.4", "ruff>=0.4"]
 
 [project.urls]
-Homepage = "https://github.com/hetvip2/airflow-hosted-on-aca"
-Repository = "https://github.com/hetvip2/airflow-hosted-on-aca"
+Homepage = "https://github.com/kyletaylored/airflow-aca-datadog"
+Repository = "https://github.com/kyletaylored/airflow-aca-datadog"
+"Source template" = "https://github.com/hetvip2/airflow-hosted-on-aca"
 
 # The reusable artifact is the Airflow plugins folder (operator + trigger).
 # Mapping it here means `pip install .` exposes the same `operators` /
