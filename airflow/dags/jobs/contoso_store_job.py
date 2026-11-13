@@ -27,7 +27,7 @@ import time
 import urllib.request
 import uuid
 
-PRODUCER = "https://github.com/hetvip2/airflow-hosted-on-aca"
+PRODUCER = "https://github.com/kyletaylored/airflow-aca-datadog"
 SPEC = "https://openlineage.io/spec/"
 # Where the job "writes" (illustrative; the sales figures are derived, not stored).
 DATA_NAMESPACE = "abfss://sales@contosodata.dfs.core.windows.net"
