@@ -1,44 +1,66 @@
 """Airflow logging config that also ships log records over OTLP.
 
-Used via ``AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS=otel_logging_config.LOGGING_CONFIG``.
+Used via ``AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS=otel_logging_config.LOGGING_CONFIG``
+when ``OTEL_LOGS_EXPORTER=otlp``.
 
-``opentelemetry-instrument`` can attach an OTel log handler to the root logger
-(``OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED``), but Airflow then runs
-``logging.config.dictConfig`` with its own config, which replaces the root
-logger's handlers and silently drops it. Declaring the handler *in* Airflow's
-config instead keeps it attached. Records carry the active trace/span ids, so
-Datadog correlates them with traces.
-
-The handler uses the global ``LoggerProvider`` that ``opentelemetry-instrument``
-sets up when ``OTEL_LOGS_EXPORTER=otlp``; without one it is a no-op.
+Airflow emits OTel traces and metrics natively, but not logs. This adds an OTel
+``LoggingHandler`` to Airflow's own logging config (root + ``airflow.task``).
+Declaring it in Airflow's config, rather than attaching it to the root logger
+directly, matters because Airflow's ``dictConfig`` replaces root handlers. The
+handler exports over OTLP using the standard ``OTEL_EXPORTER_OTLP_*`` env vars
+(on Azure Container Apps: the managed agent's gRPC endpoint). Records emitted
+inside a span carry its trace/span ids, so Datadog correlates logs with traces.
 """
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from copy import deepcopy
 
 from airflow.config_templates.airflow_local_settings import DEFAULT_LOGGING_CONFIG
 
+_lock = threading.Lock()
+
+
+def _logger_provider():
+    """The global SDK LoggerProvider, creating one if logs export is enabled."""
+    from opentelemetry._logs import get_logger_provider, set_logger_provider
+    from opentelemetry.sdk._logs import LoggerProvider
+
+    with _lock:
+        provider = get_logger_provider()
+        if isinstance(provider, LoggerProvider):
+            return provider
+        if os.environ.get("OTEL_LOGS_EXPORTER", "").strip().lower() != "otlp":
+            return None
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+        from opentelemetry.sdk.resources import Resource
+
+        # Resource.create() picks up OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES.
+        provider = LoggerProvider(resource=Resource.create())
+        provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
+        set_logger_provider(provider)
+        return provider
+
 
 def otel_handler() -> logging.Handler:
-    """dictConfig factory for an OTel ``LoggingHandler`` on the global provider."""
+    """dictConfig factory: an OTel LoggingHandler, or a no-op if logs export is off."""
     try:
-        from opentelemetry._logs import get_logger_provider
-        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-    except ImportError:  # OTel SDK not installed: keep Airflow's logging working
+        from opentelemetry.sdk._logs import LoggingHandler
+
+        provider = _logger_provider()
+    except Exception:  # noqa: BLE001 - never break Airflow's logging setup
         return logging.NullHandler()
-    provider = get_logger_provider()
-    # Processes not started under opentelemetry-instrument (e.g. the image
-    # entrypoint's `airflow db check`) only have the API's proxy provider, which
-    # LoggingHandler can't use; fall back to a no-op handler there.
-    if not isinstance(provider, LoggerProvider):
+    if provider is None:
         return logging.NullHandler()
     return LoggingHandler(level=logging.INFO, logger_provider=provider)
 
 
 LOGGING_CONFIG = deepcopy(DEFAULT_LOGGING_CONFIG)
 LOGGING_CONFIG["handlers"]["otel"] = {"()": f"{__name__}.otel_handler"}
-# Component logs (scheduler, triggerer, webserver) propagate to root; task logs
-# go to the non-propagating "airflow.task" logger, so attach to both.
+# Component logs (scheduler, triggerer, api-server, dag-processor) propagate to
+# root; task logs go to the non-propagating "airflow.task" logger.
 for _logger in (LOGGING_CONFIG["root"], LOGGING_CONFIG["loggers"]["airflow.task"]):
     _logger["handlers"] = [*_logger["handlers"], "otel"]

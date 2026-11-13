@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from airflow.exceptions import AirflowException
-from airflow.models import BaseOperator
+try:  # Airflow 3 Task SDK
+    from airflow.sdk import BaseOperator
+except ImportError:  # pragma: no cover - Airflow 2.x
+    from airflow.models import BaseOperator
 
 try:
     from operators import aca_jobs_common as aca

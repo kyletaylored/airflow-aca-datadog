@@ -5,7 +5,7 @@
 A self-contained [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
 template that **hosts Apache Airflow on Azure Container Apps** and uses it to
 orchestrate **Azure Container Apps Jobs**. You run one command, `azd up`, and get
-a working Airflow (web + scheduler + triggerer) plus a sample ACA Job for Airflow
+a working Airflow 3 (api-server + scheduler + triggerer + dag-processor) plus a sample ACA Job for Airflow
 to drive — no servers to manage, scale-to-zero job execution, per-execution billing.
 
 > **Two ways to combine Airflow + ACA Jobs**
@@ -39,7 +39,8 @@ to drive — no servers to manage, scale-to-zero job execution, per-execution bi
    └───────────────────────────────────────────────────────────────┘
 ```
 
-- **Airflow** runs as three Container Apps using **LocalExecutor** (tasks run in
+- **Airflow 3** runs as four Container Apps (api-server, scheduler, triggerer,
+  dag-processor) using **LocalExecutor** (tasks run in
   the scheduler process — simple, no Celery/Redis to operate).
 - **DAGs and plugins** are delivered to a mounted **Azure Files** share, so you
   update workflows by re-uploading files — no image rebuild.
@@ -105,7 +106,7 @@ azd up
 
 1. Provision the infrastructure in `infra/main.bicep` (Log Analytics, ACA
    environment, managed identity + role assignment, Postgres, storage + file
-   share, the three Airflow apps, and the sample ACA Job).
+   share, the four Airflow apps, and the sample ACA Job).
 2. Run the **postprovision hook** (`scripts/upload-dags.*`) to upload `airflow/dags`
    and `airflow/plugins` to the file share.
 
@@ -157,29 +158,30 @@ azd env set DD_ENV     "airflow-aca"       # env tag / OpenLineage namespace
 azd up
 ```
 
-**1. Traces via the ACA managed OpenTelemetry agent.** The Container Apps
-environment's [managed OTel agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
-is configured with a Datadog destination for traces. Each Airflow component runs
-under `opentelemetry-instrument`, which picks up the OTLP/gRPC endpoint ACA
-injects. You get:
+**1. Traces, metrics and logs via the ACA managed OpenTelemetry agent.** The
+Container Apps environment's [managed OTel agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
+is configured with a Datadog destination, and ACA injects its OTLP/gRPC endpoint
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`) into every app.
+Airflow 3 reads those standard variables natively, so the deploy only sets:
 
-- `airflow-webserver`: Flask request spans (UI + REST API; `/health` excluded).
-- `airflow-scheduler`: **one trace per DAG run**, with a root span (`airflow.dag_run`) and
-  a child span per task (`airflow.task`) carrying dag/run/task ids, try number, and
-  state (`airflow/plugins/otel_dag_run_traces.py`). The operator's ARM API calls
-  appear as `requests` spans.
-- `airflow-triggerer`: the deferred job-polling ARM calls.
+- **Traces:** `AIRFLOW__TRACES__OTEL_ON=True`
+  ([Airflow traces](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/traces.html)):
+  one trace per DAG run with a span per task, propagated from the scheduler to the
+  task process.
+- **Metrics:** `AIRFLOW__METRICS__OTEL_ON=True`: scheduler heartbeat, executor
+  and pool slots, DAG/task durations, DAG parsing.
+- **Logs:** Airflow has no native OTel logs, so `plugins/otel_logging_config.py`
+  adds an OTLP log handler to Airflow's logging config. Records emitted inside a
+  span carry its trace id, so Datadog links logs and traces.
 
-> Airflow 2.10's built-in `[traces]` exporter isn't used because it is hard-coded
-> to OTLP/**HTTP**, and the managed agent only accepts OTLP/**gRPC**. For the same
-> reason the web app runs gunicorn directly: `airflow webserver` spawns gunicorn as
-> a subprocess, which `opentelemetry-instrument` intentionally leaves uninstrumented.
+Each component reports as its own service: `airflow-aca-api-server`,
+`airflow-aca-scheduler`, `airflow-aca-triggerer`, `airflow-aca-dag-processor`
+(`env:$DD_ENV`). `DD_OTEL_SIGNALS` (default `traces,metrics,logs`) picks the signals.
 
 **2. OpenLineage → [Data Jobs Monitoring](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/).**
-At startup the OpenLineage provider is upgraded from the image's 1.11.0 to
-`2.8.0` (Datadog's recommended version for Airflow 2.10) and configured with the
-native `datadog` transport (`OPENLINEAGE__TRANSPORT__TYPE=datadog`, `DD_API_KEY`,
-`DD_SITE`, `OPENLINEAGE_NAMESPACE=$DD_ENV`). DAG and task runs appear under
+The image's OpenLineage provider (2.21) supports Datadog's native transport, so
+the deploy only sets `OPENLINEAGE__TRANSPORT__TYPE=datadog`, `DD_API_KEY`, `DD_SITE`
+and `OPENLINEAGE_NAMESPACE=$DD_ENV`. DAG and task runs appear under
 **Data Observability → Jobs Monitoring** with `env:$DD_ENV`.
 
 Leave `DD_API_KEY` empty to deploy without any of this. The managed agent has no
@@ -341,10 +343,14 @@ Any external system can start a workflow with an HTTPS call to the hosted Airflo
 The DAG then fans the work out to ACA Jobs:
 
 ```bash
-curl -X POST "https://<your-airflow-web-url>/api/v1/dags/aca_jobs_example/dagRuns" \
-  -H "Content-Type: application/json" \
-  -u "<user>:<password>" \
-  -d '{"conf": {"job_name": "nightly-etl", "env": {"DATASET": "sales-2026"}}}'
+AIRFLOW=https://<your-airflow-web-url>
+# Airflow 3 REST API (v2) uses bearer tokens: exchange the username/password once.
+TOKEN=$(curl -s -X POST "$AIRFLOW/auth/token" -H "Content-Type: application/json" \
+  -d '{"username": "<user>", "password": "<password>"}' | jq -r .access_token)
+
+curl -X POST "$AIRFLOW/api/v2/dags/aca_jobs_example/dagRuns" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"logical_date": null, "conf": {"job_name": "nightly-etl", "env": {"DATASET": "sales-2026"}}}'
 ```
 
 This is the most common integration: the customer's platform passes its arguments
@@ -387,7 +393,7 @@ airflow-hosted-on-aca/
 │  ├─ plugins/
 │  │  ├─ operators/         # AzureContainerAppsJobOperator + ARM/auth helpers
 │  │  ├─ triggers/          # async trigger for deferrable execution
-│  │  └─ otel_dag_run_traces.py  # DAG run -> OTel trace listener (Datadog)
+│  │  └─ otel_logging_config.py  # OTLP log handler for Airflow's logging (Datadog)
 │  └─ requirements.txt      # azure-identity, requests
 ├─ infra/
 │  ├─ main.bicep            # all Azure resources

@@ -26,10 +26,14 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 
-from airflow.decorators import task
-from airflow.models.dag import DAG
-from airflow.models.param import Param
-from airflow.operators.empty import EmptyOperator
+try:  # Airflow 3
+    from airflow.providers.standard.operators.empty import EmptyOperator
+    from airflow.sdk import DAG, Param, task
+except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stack)
+    from airflow.decorators import task
+    from airflow.models.dag import DAG
+    from airflow.models.param import Param
+    from airflow.operators.empty import EmptyOperator
 
 try:
     from operators.azure_container_apps_job_operator import (

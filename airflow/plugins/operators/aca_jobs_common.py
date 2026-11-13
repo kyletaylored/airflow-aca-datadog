@@ -18,6 +18,15 @@ from typing import Any, Callable
 import requests
 from airflow.exceptions import AirflowException
 
+
+def _get_connection(conn_id: str):
+    """Look up an Airflow Connection (Task SDK on Airflow 3, BaseHook on 2.x)."""
+    try:
+        from airflow.sdk import BaseHook
+    except ImportError:  # pragma: no cover - Airflow 2.x
+        from airflow.hooks.base import BaseHook
+    return BaseHook.get_connection(conn_id)
+
 DEFAULT_API_VERSION = "2024-03-01"
 
 # Identifies executions started by this operator on the ARM Jobs API, so the
@@ -152,9 +161,7 @@ def token_from_connection(
     Tenant/subscription/resource-group can also be stored in the extra so DAGs
     need even less inline config (see ``connection_defaults``).
     """
-    from airflow.hooks.base import BaseHook
-
-    conn = BaseHook.get_connection(conn_id)
+    conn = _get_connection(conn_id)
     extra = _conn_extra(conn)
 
     access_token = extra.get("access_token")
@@ -200,9 +207,7 @@ def connection_defaults(conn_id: str | None) -> dict[str, str]:
     if not conn_id:
         return {}
     try:
-        from airflow.hooks.base import BaseHook
-
-        extra = _conn_extra(BaseHook.get_connection(conn_id))
+        extra = _conn_extra(_get_connection(conn_id))
     except Exception:  # pragma: no cover - connection missing/unreadable
         return {}
     out: dict[str, str] = {}

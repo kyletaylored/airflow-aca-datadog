@@ -7,7 +7,7 @@ param location string = resourceGroup().location
 param namePrefix string = 'aflo'
 
 @description('Airflow container image (stock image; DAGs/plugins are delivered via a mounted file share).')
-param airflowImage string = 'apache/airflow:2.10.2'
+param airflowImage string = 'apache/airflow:3.4.0'
 
 @description('Container image for the sample ACA Job that Airflow drives.')
 param sampleJobImage string = 'mcr.microsoft.com/k8se/quickstart-jobs:latest'
@@ -41,8 +41,8 @@ param airflowAdminUser string = 'airflow'
 param airflowAdminPassword string
 
 @secure()
-@description('Airflow webserver secret_key (signs sessions, CSRF tokens and log-fetch requests). Set a fixed value so logins survive restarts and new revisions; empty = Airflow generates a random key per container start.')
-param airflowSecretKey string = ''
+@description('Shared secret for every Airflow component: [api] secret_key (sessions/CSRF) and [api_auth] jwt_secret (Execution API tokens the scheduler issues to tasks). Must be identical across components (set via: azd env set AIRFLOW_SECRET_KEY "$(openssl rand -hex 32)").')
+param airflowSecretKey string
 
 @description('Whether to create the Contributor role assignment for the managed identity. Requires the deployer to have Owner or User Access Administrator on the scope. Set to "false" if you lack role-assignment rights (common on locked-down/internal subscriptions) and have an admin grant the role separately using the command in the deployment outputs.')
 @allowed([ 'true', 'false' ])
@@ -92,26 +92,6 @@ var otelSignals = map(split(toLower(datadogOtelSignals), ','), sig => trim(sig))
 var otelMetrics = enableDatadog && contains(otelSignals, 'metrics')
 var otelLogs = enableDatadog && contains(otelSignals, 'logs')
 
-var basePipRequirements = 'azure-identity>=1.16.0 requests>=2.31.0'
-// Datadog add-ons, installed at container start like the base requirements.
-// - OpenLineage provider 2.8.0 = Datadog's recommended version for Airflow 2.10
-//   (the stock image ships 1.11.0; the native "datadog" transport needs >= 2.7.3).
-// - OTel packages are pinned to the versions already in apache/airflow:2.10.2
-//   (constraints-2.10.2) so pip doesn't upgrade the SDK under Airflow.
-// - apache-airflow is pinned so the provider upgrade can never drag Airflow along;
-//   common-compat/common-sql are pinned to what pip resolves, to skip backtracking.
-var datadogPipRequirements = 'apache-airflow==2.10.2 apache-airflow-providers-openlineage==2.8.0 apache-airflow-providers-common-compat==1.9.0 apache-airflow-providers-common-sql==1.29.0 opentelemetry-api==1.27.0 opentelemetry-sdk==1.27.0 opentelemetry-exporter-otlp-proto-grpc==1.27.0 opentelemetry-distro==0.48b0 opentelemetry-instrumentation-requests==0.48b0 opentelemetry-instrumentation-flask==0.48b0'
-var pipRequirements = enableDatadog ? '${basePipRequirements} ${datadogPipRequirements}' : basePipRequirements
-// Run each Airflow component under OTel auto-instrumentation. It reads the
-// OTEL_EXPORTER_OTLP_ENDPOINT/PROTOCOL (gRPC) that ACA injects for the managed agent.
-var otelWrap = enableDatadog ? 'opentelemetry-instrument ' : ''
-// The webserver is the exception: `airflow webserver` launches gunicorn as a
-// *subprocess*, and opentelemetry-instrument deliberately strips itself from
-// PYTHONPATH for subprocesses, so the Flask app would go uninstrumented. With
-// Datadog on, run gunicorn directly with the same arguments `airflow webserver` uses.
-var webServeCmd = enableDatadog
-  ? 'exec opentelemetry-instrument gunicorn --workers 4 --worker-class sync --timeout 120 --bind 0.0.0.0:8080 --name airflow-webserver --config python:airflow.www.gunicorn_config --access-logfile - --preload "airflow.www.app:cached_app()"'
-  : 'exec airflow webserver'
 var sqlAlchemyConn = 'postgresql+psycopg2://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${pgDatabaseName}?sslmode=require'
 
 // --- Observability -----------------------------------------------------------
@@ -282,10 +262,12 @@ var airflowEnv = [
   { name: 'AIRFLOW__OPERATORS__DEFAULT_DEFERRABLE', value: 'true' }
   { name: 'AIRFLOW__CORE__DAGS_FOLDER', value: '/opt/airflow/shared/dags' }
   { name: 'AIRFLOW__CORE__PLUGINS_FOLDER', value: '/opt/airflow/shared/plugins' }
-  // Accept HTTP basic auth on the stable REST API (in addition to the browser
-  // session) so external systems can trigger DAGs with a username/password.
-  { name: 'AIRFLOW__API__AUTH_BACKENDS', value: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session' }
-  { name: '_PIP_ADDITIONAL_REQUIREMENTS', value: pipRequirements }
+  // FAB auth manager (bundled in the image): username/password users created
+  // with `airflow users create`; REST API clients get a JWT from /auth/token.
+  { name: 'AIRFLOW__CORE__AUTH_MANAGER', value: 'airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager' }
+  // Must match on every component: sessions/CSRF and Execution API JWTs.
+  { name: 'AIRFLOW__API__SECRET_KEY', secretRef: 'airflow-secret-key' }
+  { name: 'AIRFLOW__API_AUTH__JWT_SECRET', secretRef: 'airflow-secret-key' }
   // Point the operator at the sample job (overridable per-DAG at trigger time).
   { name: 'AIRFLOW_VAR_AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
   { name: 'AIRFLOW_VAR_ACA_RESOURCE_GROUP', value: resourceGroup().name }
@@ -294,55 +276,42 @@ var airflowEnv = [
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
   // Read by the bundled DAGs; empty = manual-only.
   { name: 'AIRFLOW_DEMO_SCHEDULE', value: demoDagSchedule }
-  // Same secret_key on every component (Airflow requires it for log fetching).
-  ...(empty(airflowSecretKey) ? [] : [ { name: 'AIRFLOW__WEBSERVER__SECRET_KEY', secretRef: 'airflow-secret-key' } ])
   ...datadogEnvVars
 ]
 
 var datadogEnvVars = enableDatadog ? [
-  // --- OpenLineage -> Datadog Data Jobs Monitoring (native "datadog" transport) ---
+  // --- OpenLineage -> Datadog Data Jobs Monitoring (native "datadog" transport;
+  //     the image's openlineage provider is new enough, no install needed) ---
   { name: 'OPENLINEAGE__TRANSPORT__TYPE', value: 'datadog' }
   { name: 'DD_API_KEY', secretRef: 'dd-api-key' }
   { name: 'DD_SITE', value: datadogSite }
   { name: 'OPENLINEAGE_NAMESPACE', value: datadogEnv }
-  // --- OpenTelemetry SDK -> ACA managed agent -> Datadog (traces only) ---
+  // --- Airflow-native OpenTelemetry -> ACA managed agent -> Datadog ---
+  // Airflow 3 reads the standard OTEL_EXPORTER_OTLP_ENDPOINT/PROTOCOL that ACA
+  // injects (gRPC), so turning tracing on is all it takes.
+  { name: 'AIRFLOW__TRACES__OTEL_ON', value: 'True' }
   { name: 'OTEL_TRACES_EXPORTER', value: 'otlp' }
   { name: 'OTEL_METRICS_EXPORTER', value: otelMetrics ? 'otlp' : 'none' }
   { name: 'OTEL_LOGS_EXPORTER', value: otelLogs ? 'otlp' : 'none' }
   // Overrides the attributes ACA injects, so Datadog gets env / unified tagging.
   { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'deployment.environment=${datadogEnv},deployment.environment.name=${datadogEnv},service.namespace=airflow,cloud.provider=azure,cloud.platform=azure_container_apps' }
-  // Health checks would otherwise dominate the webserver's traces.
-  { name: 'OTEL_PYTHON_FLASK_EXCLUDED_URLS', value: 'health,static' }
-  // One trace per DAG run with a span per task (plugins/otel_dag_run_traces.py).
-  { name: 'AIRFLOW_OTEL_DAG_RUN_TRACES', value: 'true' }
-  ...otelMetricsEnvVars
-  ...otelLogsEnvVars
+  ...(otelMetrics ? [ { name: 'AIRFLOW__METRICS__OTEL_ON', value: 'True' } ] : [])
+  // Airflow has no native OTel logs; plugins/otel_logging_config.py adds an OTLP
+  // log handler to Airflow's logging config (records carry trace/span ids).
+  ...(otelLogs ? [ { name: 'AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS', value: 'otel_logging_config.LOGGING_CONFIG' } ] : [])
 ] : []
 
-// Airflow's own metrics (scheduler heartbeat, executor/pool slots, DAG/task
-// timings). Airflow 2.10 builds an OTLP/HTTP meter provider, but OTel only lets
-// the global provider be set once, so Airflow ends up recording on the gRPC
-// provider opentelemetry-instrument already installed. The HTTP host/port below
-// are therefore never used.
-var otelMetricsEnvVars = otelMetrics ? [
-  { name: 'AIRFLOW__METRICS__OTEL_ON', value: 'True' }
-  { name: 'AIRFLOW__METRICS__OTEL_HOST', value: 'localhost' }
-  { name: 'AIRFLOW__METRICS__OTEL_PORT', value: '4318' }
-] : []
-
-// Ship component + task logs over OTLP (correlated with traces). Airflow's own
-// dictConfig would drop an auto-attached root handler, so the handler is
-// declared in Airflow's logging config (plugins/otel_logging_config.py).
-var otelLogsEnvVars = otelLogs ? [
-  { name: 'AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS', value: 'otel_logging_config.LOGGING_CONFIG' }
-] : []
-
-// Per-component OTel service name (only set when Datadog is enabled).
+// Per-component env: OTel service name (when Datadog is on) and, for every
+// component except the api-server itself, where the Execution API lives (tasks
+// started by the scheduler, triggers and DAG parsing all report through it).
 func otelServiceEnv(enabled bool, service string) array => enabled ? [ { name: 'OTEL_SERVICE_NAME', value: service } ] : []
+var executionApiEnv = [
+  { name: 'AIRFLOW__CORE__EXECUTION_API_SERVER_URL', value: 'https://${airflowWeb.properties.configuration.ingress.fqdn}/execution/' }
+]
 
 var airflowSecrets = concat(
   [ { name: 'sql-alchemy-conn', value: sqlAlchemyConn } ],
-  empty(airflowSecretKey) ? [] : [ { name: 'airflow-secret-key', value: airflowSecretKey } ],
+  [ { name: 'airflow-secret-key', value: airflowSecretKey } ],
   enableDatadog ? [ { name: 'dd-api-key', value: datadogApiKey } ] : []
 )
 
@@ -353,7 +322,7 @@ var sharedVolumeMounts = [
   { volumeName: 'airflow-shared', mountPath: '/opt/airflow/shared' }
 ]
 
-// --- Airflow web (the only externally reachable component) -------------------
+// --- Airflow API server: UI + REST API + Execution API (the only external app) --
 
 resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-web'
@@ -380,17 +349,16 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'airflow-web'
           image: airflowImage
           // No `command` override: it would replace the image ENTRYPOINT
-          // (dumb-init + /entrypoint), which is what installs
-          // _PIP_ADDITIONAL_REQUIREMENTS. Passing `bash -c ...` as args lets the
-          // entrypoint run first, then exec our script.
-          // Migrate the DB and create the admin user on first boot, then serve.
+          // (dumb-init + /entrypoint, which waits for the DB and sets up the
+          // environment). Passing `bash -c ...` as args runs it first.
+          // Migrate the DB (core + FAB tables), create the admin user on first boot, serve.
           args: [
             'bash'
             '-c'
-            'airflow db migrate && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && ${webServeCmd}'
+            'airflow db migrate && (airflow fab-db migrate || true) && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && exec airflow api-server --host 0.0.0.0 --port 8080'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-webserver'))
+          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server'))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -422,9 +390,9 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'airflow-scheduler'
           image: airflowImage
-          args: [ 'bash', '-c', 'exec ${otelWrap}airflow scheduler' ]
+          args: [ 'bash', '-c', 'exec airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-scheduler'))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler'))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -432,7 +400,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
-  dependsOn: [ envStorage, airflowWeb ]
+  dependsOn: [ envStorage ]
 }
 
 // --- Triggerer (powers deferrable operators) --------------------------------
@@ -456,9 +424,9 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'airflow-triggerer'
           image: airflowImage
-          args: [ 'bash', '-c', 'exec ${otelWrap}airflow triggerer' ]
+          args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-triggerer'))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer'))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -466,7 +434,41 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
-  dependsOn: [ envStorage, airflowWeb ]
+  dependsOn: [ envStorage ]
+}
+
+// --- DAG processor (Airflow 3 parses DAG files outside the scheduler) --------
+
+resource airflowDagProcessor 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${namePrefix}-dag-processor'
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${identity.id}': {} }
+  }
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      secrets: airflowSecrets
+    }
+    template: {
+      containers: [
+        {
+          name: 'airflow-dag-processor'
+          image: airflowImage
+          args: [ 'bash', '-c', 'exec airflow dag-processor' ]
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor'))
+          volumeMounts: sharedVolumeMounts
+        }
+      ]
+      volumes: sharedVolumes
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ envStorage ]
 }
 
 // --- The "muscle": a sample ACA Job Airflow drives --------------------------

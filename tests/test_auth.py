@@ -13,18 +13,14 @@ class FakeConn:
 
 
 def _mock_basehook(monkeypatch, conn):
-    """Make ``BaseHook.get_connection`` return our fake connection."""
-    base = types.ModuleType("airflow.hooks.base")
+    """Make the Airflow Connection lookup return our fake connection."""
 
-    class BaseHook:
-        @staticmethod
-        def get_connection(conn_id):
-            if conn is None:
-                raise KeyError(conn_id)
-            return conn
+    def get_connection(conn_id):
+        if conn is None:
+            raise KeyError(conn_id)
+        return conn
 
-    base.BaseHook = BaseHook
-    monkeypatch.setitem(sys.modules, "airflow.hooks.base", base)
+    monkeypatch.setattr(aca, "_get_connection", get_connection)
 
 
 def _mock_identity(monkeypatch):
