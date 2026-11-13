@@ -27,55 +27,67 @@ and demo DAGs that show it off.
 
 ## Architecture
 
+### Deployment
+
+```mermaid
+flowchart TB
+    subgraph env["Azure Container Apps environment"]
+        direction LR
+        api["api-server<br/>ingress :8080"]
+        sched["scheduler<br/>LocalExecutor, runs tasks"]
+        trig["triggerer<br/>deferrable operators"]
+        dagp["dag-processor<br/>parses DAGs"]
+        job["ACA Job<br/>sample job"]
+    end
+
+    pg[("PostgreSQL Flexible Server<br/>metadata DB")]
+    share[("Azure Files share<br/>DAGs and plugins")]
+    arm["ARM Jobs API<br/>user-assigned managed identity,<br/>Contributor on the resource group"]
+
+    share -- "mounted at /opt/airflow/shared" --> env
+    api & sched & trig & dagp --> pg
+    sched & trig --> arm
+    arm -- "starts execution" --> job
+```
+
+Four Airflow components run as container apps in one Container Apps environment.
+They share a PostgreSQL metadata database and mount DAGs and plugins from an Azure
+Files share. Tasks run on the scheduler (`LocalExecutor`). A task that uses the ACA
+Jobs operator starts an execution of an ACA Job through the Azure Resource Manager
+API, and the triggerer polls the execution while the task is deferred. Both
+authenticate with the user-assigned managed identity.
+
+### Telemetry to Datadog
+
 ```mermaid
 flowchart LR
-    subgraph rg["Azure resource group"]
-        subgraph env["Container Apps environment"]
-            subgraph apps["Airflow 3 container apps"]
-                api["api-server<br/>UI, REST and Execution API"]
-                sched["scheduler<br/>runs tasks (LocalExecutor)"]
-                trig["triggerer<br/>deferred polling"]
-                dagp["dag-processor<br/>parses DAGs"]
-            end
-            job["ACA Job executions<br/>contoso_store_job"]
-            agent["Managed OpenTelemetry agent"]
-        end
-        pg[("PostgreSQL Flexible Server<br/>metadata DB")]
-        share[("Azure Files share<br/>dags and plugins")]
-        arm["Azure Resource Manager<br/>Microsoft.App/jobs API"]
+    subgraph env["Azure Container Apps environment"]
+        apps["Airflow apps<br/>api-server, scheduler,<br/>triggerer, dag-processor"]
+        job["ACA Job executions"]
+        agent["Managed OpenTelemetry agent"]
     end
 
     subgraph dd["Datadog"]
         apm["APM<br/>traces, metrics, logs"]
-        djm["Data Jobs Monitoring<br/>OpenLineage intake"]
+        djm["Data Jobs Monitoring<br/>DAG, task and job runs, lineage"]
     end
 
-    share -- "mounted" --> apps
-    apps --> pg
-    sched -- "start job, poll execution<br/>(managed identity)" --> arm
-    trig -- "poll execution" --> arm
-    arm -- "starts" --> job
-    apps -. "OTLP gRPC" .-> agent
-    agent -. "Datadog destination" .-> apm
-    sched -. "OpenLineage events" .-> djm
-    job -. "OpenLineage events<br/>with parent task" .-> djm
+    apps -- "OTLP over gRPC" --> agent
+    agent -- "Datadog destination" --> apm
+    apps -- "OpenLineage events" --> djm
+    job -- "OpenLineage events<br/>with the parent task" --> djm
 
     classDef datadog fill:#632ca6,stroke:#632ca6,color:#ffffff
     class apm,djm datadog
 ```
 
-Four Airflow components run as container apps, share a PostgreSQL metadata database,
-and mount DAGs and plugins from an Azure Files share. Tasks run on the scheduler
-(`LocalExecutor`) and launch ACA Job executions through the Azure Resource Manager
-API, authenticated with a user-assigned managed identity.
-
-Telemetry reaches Datadog by two independent paths (dotted lines):
+Telemetry reaches Datadog by two independent paths:
 
 - **APM:** every Airflow app exports OTLP to the environment's managed
   OpenTelemetry agent, which forwards traces, metrics and logs to Datadog.
-- **Data Jobs Monitoring:** the scheduler's OpenLineage listener, and each ACA Job
-  execution, post OpenLineage events straight to Datadog's intake. The agent is not
-  involved.
+- **Data Jobs Monitoring:** the OpenLineage listener on the scheduler, where tasks
+  run, and each ACA Job execution post OpenLineage events straight to Datadog's
+  intake. The agent isn't involved.
 
 ---
 
