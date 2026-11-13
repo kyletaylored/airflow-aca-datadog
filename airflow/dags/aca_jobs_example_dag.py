@@ -6,8 +6,9 @@ from datetime import datetime
 try:  # Airflow 3
     from airflow.sdk import DAG, Param
 except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stack)
-    from airflow import DAG
     from airflow.models.param import Param
+
+    from airflow import DAG
 
 try:
     # In a real Airflow deployment the `plugins/` directory is on sys.path,

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from airflow.exceptions import AirflowException
+
 try:  # Airflow 3 Task SDK
     from airflow.sdk import BaseOperator
 except ImportError:  # pragma: no cover - Airflow 2.x
