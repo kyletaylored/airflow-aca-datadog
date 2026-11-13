@@ -155,3 +155,60 @@ def test_get_execution_state_missing_status(monkeypatch):
     with pytest.raises(AirflowException):
         aca.get_execution_state(ref, "exec-1", "tok", "2024-03-01")
 
+
+
+# --- OTel span naming -----------------------------------------------------
+
+_JOB = (
+    "https://management.azure.com/subscriptions/sub1/resourceGroups/rg1/"
+    "providers/Microsoft.App/jobs/job1"
+)
+
+
+@pytest.mark.parametrize(
+    "method,url,expected",
+    [
+        ("post", f"{_JOB}/start?api-version=2024-03-01", "POST Microsoft.App/jobs/{job}/start"),
+        (
+            "GET",
+            f"{_JOB}/executions/job1-abc12?api-version=2024-03-01",
+            "GET Microsoft.App/jobs/{job}/executions/{execution}",
+        ),
+        ("GET", "http://localhost:42356/msi/token?resource=x", None),
+    ],
+)
+def test_arm_resource_name(method, url, expected):
+    assert aca.arm_resource_name(method, url) == expected
+
+
+def test_name_arm_span_sets_resource_only_for_arm_calls():
+    class Span:
+        def __init__(self, recording=True):
+            self.attrs = {}
+            self.recording = recording
+
+        def is_recording(self):
+            return self.recording
+
+        def set_attribute(self, key, value):
+            self.attrs[key] = value
+
+    arm = requests.Request("POST", f"{_JOB}/start?api-version=1").prepare()
+    token = requests.Request("GET", "http://localhost:12356/msi/token?resource=x").prepare()
+    other = requests.Request("GET", "https://example.com/x").prepare()
+
+    span = Span()
+    aca._name_arm_span(span, arm)
+    assert span.attrs == {"resource.name": "POST Microsoft.App/jobs/{job}/start"}
+
+    span = Span()
+    aca._name_arm_span(span, token)
+    assert span.attrs == {"resource.name": "GET managed identity token"}
+
+    span = Span()
+    aca._name_arm_span(span, other)
+    assert span.attrs == {}
+
+    span = Span(recording=False)
+    aca._name_arm_span(span, arm)
+    assert span.attrs == {}

@@ -168,6 +168,12 @@ Airflow 3 reads those standard variables natively, so the deploy only sets:
   ([Airflow traces](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/traces.html)):
   one trace per DAG run with a span per task, propagated from the scheduler to the
   task process.
+- **Azure API calls:** the scheduler and triggerer also install
+  `opentelemetry-instrumentation-requests` at startup, and the operator plugin turns
+  it on. Each ARM call (start the job, poll its execution) and managed-identity token
+  fetch becomes a client span under the task's `worker.*` / `trigger.*` span, with
+  resources like `POST Microsoft.App/jobs/{job}/start`. For production, bake the
+  package into a custom image instead of installing it at startup.
 - **Metrics:** `AIRFLOW__METRICS__OTEL_ON=True`: scheduler heartbeat, executor
   and pool slots, DAG/task durations, DAG parsing.
 - **Logs:** Airflow has no native OTel logs, so `plugins/otel_logging_config.py`

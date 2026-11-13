@@ -390,3 +390,60 @@ def _extract_execution_name(
     if not match:
         return None
     return match.group(1)
+
+
+# --- OpenTelemetry: a client span per HTTP call ---------------------------------
+# Every ARM call (start / poll) and the managed-identity token fetch go through
+# `requests`, so instrumenting it puts each call under Airflow's own `worker.*`
+# (operator) or `trigger.*` (triggerer) span, which are current while
+# execute()/run() runs. No-op unless opentelemetry-instrumentation-requests is
+# installed; spans go to whatever global tracer provider Airflow configured.
+
+_ARM_NAME_SEGMENTS = re.compile(r"/(jobs|executions)/[^/]+", re.IGNORECASE)
+
+
+def arm_resource_name(method: str, url: str) -> str | None:
+    """Low-cardinality name for an ARM call, e.g. ``POST Microsoft.App/jobs/{job}/start``.
+
+    Returns None for non-ARM URLs so they keep the default span naming.
+    """
+    path = url.split("?", 1)[0]
+    if "management.azure.com" not in path or "/providers/" not in path:
+        return None
+    provider_path = path.split("/providers/", 1)[1]
+    templated = _ARM_NAME_SEGMENTS.sub(
+        lambda m: f"/{m.group(1)}/{{{m.group(1).lower().rstrip('s')}}}", provider_path
+    )
+    return f"{method.upper()} {templated}"
+
+
+def _name_arm_span(span: Any, request: Any) -> None:
+    if not span.is_recording():
+        return
+    method, url = request.method or "", request.url or ""
+    name = arm_resource_name(method, url)
+    if name is None and url.split("?", 1)[0].endswith("/msi/token"):
+        name = f"{method.upper()} managed identity token"
+    if name:
+        # Datadog uses `resource.name` as the span's resource (otherwise just "POST").
+        span.set_attribute("resource.name", name)
+
+
+# OpenLineage's Datadog transport also uses `requests`, but its listener emits
+# outside the task span, so each event would become a stray single-span trace.
+_EXCLUDED_URLS = r"data-obs-intake\."
+
+
+def instrument_requests() -> bool:
+    """Turn on `requests` OTel instrumentation once per process; True if active."""
+    try:
+        from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    except ImportError:
+        return False
+    instrumentor = RequestsInstrumentor()
+    if not instrumentor.is_instrumented_by_opentelemetry:
+        instrumentor.instrument(request_hook=_name_arm_span, excluded_urls=_EXCLUDED_URLS)
+    return True
+
+
+instrument_requests()

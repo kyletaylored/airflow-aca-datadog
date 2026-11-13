@@ -290,9 +290,9 @@ var datadogEnvVars = enableDatadog ? [
   // Airflow 3 reads the standard OTEL_EXPORTER_OTLP_ENDPOINT/PROTOCOL that ACA
   // injects (gRPC), so turning tracing on is all it takes.
   { name: 'AIRFLOW__TRACES__OTEL_ON', value: 'True' }
-  // Per Datadog's ACA managed-agent guide: OTLP over gRPC (the only protocol
-  // the agent accepts). ACA injects OTEL_EXPORTER_OTLP_ENDPOINT itself.
-  { name: 'OTEL_EXPORTER_OTLP_PROTOCOL', value: 'grpc' }
+  // Don't set OTEL_EXPORTER_OTLP_* here: ACA injects the agent's endpoint and
+  // protocol (gRPC) only when the app defines none of them; setting
+  // OTEL_EXPORTER_OTLP_PROTOCOL alone left every app without an endpoint.
   { name: 'OTEL_TRACES_EXPORTER', value: 'otlp' }
   { name: 'OTEL_METRICS_EXPORTER', value: otelMetrics ? 'otlp' : 'none' }
   { name: 'OTEL_LOGS_EXPORTER', value: otelLogs ? 'otlp' : 'none' }
@@ -306,11 +306,19 @@ var datadogEnvVars = enableDatadog ? [
 // component except the api-server itself, where the Execution API lives (tasks
 // started by the scheduler, triggers and DAG parsing all report through it).
 // OTEL_RESOURCE_ATTRIBUTES per Datadog's ACA managed-agent guide: cloud.provider,
-// cloud.platform and the app's cloud.resource_id are required; env/version
-// come from deployment.environment.name / service.version.
+// cloud.platform and the app's cloud.resource_id are required; version comes
+// from service.version. The managed agent's pipeline maps Datadog `env` only
+// from the older deployment.environment key, so set it alongside .name.
 func otelServiceEnv(enabled bool, service string, resourceId string, ddEnv string, version string) array => enabled ? [
   { name: 'OTEL_SERVICE_NAME', value: service }
-  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
+  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},deployment.environment=${ddEnv},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
+] : []
+// Components that make ARM calls (the scheduler runs the operator's tasks, the
+// triggerer polls) get `requests` instrumentation, so each call is a span under
+// the task's worker.*/trigger.* span. Installed at startup by the image
+// entrypoint; pinned to the image's OTel SDK (1.45.2 <-> 0.66b2).
+var httpTracingEnv = enableDatadog ? [
+  { name: '_PIP_ADDITIONAL_REQUIREMENTS', value: 'opentelemetry-instrumentation-requests==0.66b2' }
 ] : []
 var airflowVersion = last(split(airflowImage, ':'))
 var appIdPrefix = '${resourceGroup().id}/providers/Microsoft.App/containerApps'
@@ -401,7 +409,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', datadogEnv, airflowVersion))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', datadogEnv, airflowVersion), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -435,7 +443,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', datadogEnv, airflowVersion))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', datadogEnv, airflowVersion), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
