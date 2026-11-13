@@ -93,8 +93,10 @@ az account get-access-token --resource https://management.azure.com --query acce
 azd env new my-airflow
 
 # Required secrets (or azd will prompt):
-azd env set POSTGRES_ADMIN_PASSWORD "$(openssl rand -base64 24)"
+# URL-safe (it is embedded in the SQLAlchemy URL) and meets Azure complexity rules:
+azd env set POSTGRES_ADMIN_PASSWORD "Pg1-$(openssl rand -hex 16)"
 azd env set AIRFLOW_ADMIN_PASSWORD  "$(openssl rand -base64 18)"
+azd env set AIRFLOW_SECRET_KEY      "$(openssl rand -hex 32)"   # keeps logins valid across restarts
 
 azd up
 ```
@@ -133,9 +135,12 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `POSTGRES_ZONE` | _(Azure picks)_ | Pin an availability zone (`1`/`2`/`3`) if creation fails with `SkuNotAvailable` |
 | `POSTGRES_LOCATION` | _(same as `AZURE_LOCATION`)_ | Put only Postgres in another region if the SKU isn't offered in yours |
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
+| `AIRFLOW_SECRET_KEY` | _(random per start)_ | Webserver `secret_key`; set it so sessions/CSRF survive restarts and new revisions |
 | `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
+| `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` (merged with the resource group's tags) |
 | `DD_API_KEY` | _(empty)_ | Datadog API key. Setting it enables OTel traces + Data Jobs Monitoring (see [Datadog](#datadog-opentelemetry-traces--data-jobs-monitoring)) |
 | `DD_SITE` | `datadoghq.com` | Datadog site (`us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`, …) |
+| `DD_OTEL_SIGNALS` | `traces,metrics,logs` | Which OTel signals the managed agent sends to Datadog |
 | `DD_ENV` | `airflow-aca` | Datadog `env` tag on traces and the OpenLineage namespace |
 
 ---

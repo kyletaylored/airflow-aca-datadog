@@ -32,14 +32,23 @@
     "airflowAdminPassword": {
       "value": "${AIRFLOW_ADMIN_PASSWORD}"
     },
+    "airflowSecretKey": {
+      "value": "${AIRFLOW_SECRET_KEY}"
+    },
     "assignJobsRole": {
       "value": "${ASSIGN_JOBS_ROLE=true}"
+    },
+    "resourceTags": {
+      "value": "${RESOURCE_TAGS}"
     },
     "datadogApiKey": {
       "value": "${DD_API_KEY}"
     },
     "datadogSite": {
       "value": "${DD_SITE=datadoghq.com}"
+    },
+    "datadogOtelSignals": {
+      "value": "${DD_OTEL_SIGNALS=traces,metrics,logs}"
     },
     "datadogEnv": {
       "value": "${DD_ENV=airflow-aca}"

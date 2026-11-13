@@ -40,9 +40,16 @@ param airflowAdminUser string = 'airflow'
 @description('Initial Airflow web UI admin password.')
 param airflowAdminPassword string
 
+@secure()
+@description('Airflow webserver secret_key (signs sessions, CSRF tokens and log-fetch requests). Set a fixed value so logins survive restarts and new revisions; empty = Airflow generates a random key per container start.')
+param airflowSecretKey string = ''
+
 @description('Whether to create the Contributor role assignment for the managed identity. Requires the deployer to have Owner or User Access Administrator on the scope. Set to "false" if you lack role-assignment rights (common on locked-down/internal subscriptions) and have an admin grant the role separately using the command in the deployment outputs.')
 @allowed([ 'true', 'false' ])
 param assignJobsRole string = 'true'
+
+@description('Extra tags for every resource, as comma-separated key=value pairs (e.g. "team=data,cost-center=123"). Merged on top of the resource group\'s own tags.')
+param resourceTags string = ''
 
 @secure()
 @description('Datadog API key. When set, enables (1) the ACA managed OpenTelemetry agent exporting traces to Datadog and (2) OpenLineage events to Datadog Data Jobs Monitoring. Leave empty to deploy without Datadog.')
@@ -54,7 +61,18 @@ param datadogSite string = 'datadoghq.com'
 @description('Datadog "env" tag on traces, and the OpenLineage namespace (shown as "env" in Data Jobs Monitoring).')
 param datadogEnv string = 'airflow-aca'
 
+@description('Comma-separated OTel signals sent to Datadog via the ACA managed agent: any of traces, metrics, logs.')
+param datadogOtelSignals string = 'traces,metrics,logs'
+
 var suffix = uniqueString(subscription().subscriptionId, resourceGroup().id)
+// Resource tags = the resource group's tags (so ARM updates never strip tags a
+// tag-inheritance policy added) + any RESOURCE_TAGS pairs.
+var extraTags = toObject(
+  filter(split(resourceTags, ','), pair => contains(pair, '=')),
+  pair => trim(split(pair, '=')[0]),
+  pair => trim(substring(pair, indexOf(pair, '=') + 1))
+)
+var tags = union(resourceGroup().tags ?? {}, extraTags)
 var workspaceName = '${namePrefix}-law-${suffix}'
 var managedEnvName = '${namePrefix}-env-${suffix}'
 var identityName = '${namePrefix}-id-${suffix}'
@@ -67,6 +85,9 @@ var pgDatabaseName = 'airflow'
 var sampleJobName = '${namePrefix}-job-${take(suffix, 10)}'
 
 var enableDatadog = !empty(datadogApiKey)
+var otelSignals = map(split(toLower(datadogOtelSignals), ','), sig => trim(sig))
+var otelMetrics = enableDatadog && contains(otelSignals, 'metrics')
+var otelLogs = enableDatadog && contains(otelSignals, 'logs')
 
 var basePipRequirements = 'azure-identity>=1.16.0 requests>=2.31.0'
 // Datadog add-ons, installed at container start like the base requirements.
@@ -95,6 +116,7 @@ var sqlAlchemyConn = 'postgresql+psycopg2://${postgresAdminUser}:${postgresAdmin
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
+  tags: tags
   properties: {
     sku: { name: 'PerGB2018' }
     retentionInDays: 30
@@ -106,6 +128,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: location
+  tags: tags
 }
 
 // Let the identity start/read ACA Job executions in this resource group.
@@ -134,6 +157,7 @@ resource jobsRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01'
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
   location: location
+  tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
@@ -161,6 +185,7 @@ resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-0
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
   name: pgServerName
   location: empty(postgresLocation) ? location : postgresLocation
+  tags: tags
   sku: {
     name: postgresSkuName
     tier: postgresSkuTier
@@ -198,6 +223,7 @@ resource pgFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@202
 resource managedEnvironment 'Microsoft.App/managedEnvironments@2024-10-02-preview' = {
   name: managedEnvName
   location: location
+  tags: tags
   properties: {
     appLogsConfiguration: {
       destination: 'log-analytics'
@@ -225,6 +251,8 @@ resource managedEnvironment 'Microsoft.App/managedEnvironments@2024-10-02-previe
       tracesConfiguration: {
         destinations: [ 'dataDog' ]
       }
+      metricsConfiguration: otelMetrics ? { destinations: [ 'dataDog' ] } : null
+      logsConfiguration: otelLogs ? { destinations: [ 'dataDog' ] } : null
     } : null
   }
 }
@@ -261,6 +289,8 @@ var airflowEnv = [
   { name: 'AIRFLOW_VAR_ACA_JOB_NAME', value: sampleJobName }
   // user-assigned managed identity, so DefaultAzureCredential picks the right one.
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
+  // Same secret_key on every component (Airflow requires it for log fetching).
+  ...(empty(airflowSecretKey) ? [] : [ { name: 'AIRFLOW__WEBSERVER__SECRET_KEY', secretRef: 'airflow-secret-key' } ])
   ...datadogEnvVars
 ]
 
@@ -272,14 +302,34 @@ var datadogEnvVars = enableDatadog ? [
   { name: 'OPENLINEAGE_NAMESPACE', value: datadogEnv }
   // --- OpenTelemetry SDK -> ACA managed agent -> Datadog (traces only) ---
   { name: 'OTEL_TRACES_EXPORTER', value: 'otlp' }
-  { name: 'OTEL_METRICS_EXPORTER', value: 'none' }
-  { name: 'OTEL_LOGS_EXPORTER', value: 'none' }
+  { name: 'OTEL_METRICS_EXPORTER', value: otelMetrics ? 'otlp' : 'none' }
+  { name: 'OTEL_LOGS_EXPORTER', value: otelLogs ? 'otlp' : 'none' }
   // Overrides the attributes ACA injects, so Datadog gets env / unified tagging.
   { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'deployment.environment=${datadogEnv},deployment.environment.name=${datadogEnv},service.namespace=airflow,cloud.provider=azure,cloud.platform=azure_container_apps' }
   // Health checks would otherwise dominate the webserver's traces.
   { name: 'OTEL_PYTHON_FLASK_EXCLUDED_URLS', value: 'health,static' }
   // One trace per DAG run with a span per task (plugins/otel_dag_run_traces.py).
   { name: 'AIRFLOW_OTEL_DAG_RUN_TRACES', value: 'true' }
+  ...otelMetricsEnvVars
+  ...otelLogsEnvVars
+] : []
+
+// Airflow's own metrics (scheduler heartbeat, executor/pool slots, DAG/task
+// timings). Airflow 2.10 builds an OTLP/HTTP meter provider, but OTel only lets
+// the global provider be set once, so Airflow ends up recording on the gRPC
+// provider opentelemetry-instrument already installed. The HTTP host/port below
+// are therefore never used.
+var otelMetricsEnvVars = otelMetrics ? [
+  { name: 'AIRFLOW__METRICS__OTEL_ON', value: 'True' }
+  { name: 'AIRFLOW__METRICS__OTEL_HOST', value: 'localhost' }
+  { name: 'AIRFLOW__METRICS__OTEL_PORT', value: '4318' }
+] : []
+
+// Ship component + task logs over OTLP (correlated with traces). Airflow's own
+// dictConfig would drop an auto-attached root handler, so the handler is
+// declared in Airflow's logging config (plugins/otel_logging_config.py).
+var otelLogsEnvVars = otelLogs ? [
+  { name: 'AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS', value: 'otel_logging_config.LOGGING_CONFIG' }
 ] : []
 
 // Per-component OTel service name (only set when Datadog is enabled).
@@ -287,6 +337,7 @@ func otelServiceEnv(enabled bool, service string) array => enabled ? [ { name: '
 
 var airflowSecrets = concat(
   [ { name: 'sql-alchemy-conn', value: sqlAlchemyConn } ],
+  empty(airflowSecretKey) ? [] : [ { name: 'airflow-secret-key', value: airflowSecretKey } ],
   enableDatadog ? [ { name: 'dd-api-key', value: datadogApiKey } ] : []
 )
 
@@ -302,6 +353,7 @@ var sharedVolumeMounts = [
 resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-web'
   location: location
+  tags: tags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: { '${identity.id}': {} }
@@ -349,6 +401,7 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
 resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-scheduler'
   location: location
+  tags: tags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: { '${identity.id}': {} }
@@ -382,6 +435,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
 resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-triggerer'
   location: location
+  tags: tags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: { '${identity.id}': {} }
@@ -415,6 +469,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
 resource sampleJob 'Microsoft.App/jobs@2024-03-01' = {
   name: sampleJobName
   location: location
+  tags: tags
   properties: {
     environmentId: managedEnvironment.id
     configuration: {
