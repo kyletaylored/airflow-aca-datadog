@@ -137,6 +137,7 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
 | `AIRFLOW_SECRET_KEY` | _(random per start)_ | Webserver `secret_key`; set it so sessions/CSRF survive restarts and new revisions |
 | `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
+| `DEMO_DAG_SCHEDULE` | `*/5 * * * *` | Schedule for the bundled DAGs (set to an empty string for manual-only) |
 | `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` (merged with the resource group's tags) |
 | `DD_API_KEY` | _(empty)_ | Datadog API key. Setting it enables OTel traces + Data Jobs Monitoring (see [Datadog](#datadog-opentelemetry-traces--data-jobs-monitoring)) |
 | `DD_SITE` | `datadoghq.com` | Datadog site (`us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`, …) |

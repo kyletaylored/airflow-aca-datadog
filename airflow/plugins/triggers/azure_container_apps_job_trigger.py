@@ -20,6 +20,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - import fallback
     from plugins.operators import aca_jobs_common as aca
 
+try:  # optional: join the DAG run's OTel trace (plugins/otel_dag_run_traces.py)
+    from otel_dag_run_traces import attach_task_context
+except ImportError:  # pragma: no cover - tracing plugin not deployed
+    attach_task_context = None
+
 
 class AzureContainerAppsJobTrigger(BaseTrigger):
     """Polls an ACA Job execution to a terminal state, asynchronously."""
@@ -56,6 +61,10 @@ class AzureContainerAppsJobTrigger(BaseTrigger):
         )
 
     async def run(self) -> AsyncIterator[TriggerEvent]:
+        if attach_task_context is not None:
+            # Nest the polling HTTP spans under the task's span. The triggerer sets
+            # self.task_instance; asyncio.to_thread copies this context to threads.
+            attach_task_context(getattr(self, "task_instance", None))
         job_ref = aca.ACAJobRef.from_dict(self.job_ref)
         token = await asyncio.to_thread(aca.get_token, self.auth, None)
         deadline = time.monotonic() + self.timeout_seconds

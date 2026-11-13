@@ -47,6 +47,9 @@
     "datadogSite": {
       "value": "${DD_SITE=datadoghq.com}"
     },
+    "demoDagSchedule": {
+      "value": "${DEMO_DAG_SCHEDULE=*/5 * * * *}"
+    },
     "datadogOtelSignals": {
       "value": "${DD_OTEL_SIGNALS=traces,metrics,logs}"
     },

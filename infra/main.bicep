@@ -61,6 +61,9 @@ param datadogSite string = 'datadoghq.com'
 @description('Datadog "env" tag on traces, and the OpenLineage namespace (shown as "env" in Data Jobs Monitoring).')
 param datadogEnv string = 'airflow-aca'
 
+@description('Schedule for the bundled demo DAGs (cron or preset like @hourly). Empty = manual trigger only.')
+param demoDagSchedule string = '*/5 * * * *'
+
 @description('Comma-separated OTel signals sent to Datadog via the ACA managed agent: any of traces, metrics, logs.')
 param datadogOtelSignals string = 'traces,metrics,logs'
 
@@ -289,6 +292,8 @@ var airflowEnv = [
   { name: 'AIRFLOW_VAR_ACA_JOB_NAME', value: sampleJobName }
   // user-assigned managed identity, so DefaultAzureCredential picks the right one.
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
+  // Read by the bundled DAGs; empty = manual-only.
+  { name: 'AIRFLOW_DEMO_SCHEDULE', value: demoDagSchedule }
   // Same secret_key on every component (Airflow requires it for log fetching).
   ...(empty(airflowSecretKey) ? [] : [ { name: 'AIRFLOW__WEBSERVER__SECRET_KEY', secretRef: 'airflow-secret-key' } ])
   ...datadogEnvVars

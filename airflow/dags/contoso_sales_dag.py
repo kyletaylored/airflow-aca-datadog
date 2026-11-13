@@ -23,6 +23,7 @@ Drop this file into ``airflow/dags/`` of either template repo and trigger
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 
 from airflow.decorators import task
@@ -95,8 +96,10 @@ with DAG(
     dag_id="contoso_sales",
     description="Contoso nightly sales total: fan out one ACA Job per store, then sum.",
     start_date=datetime(2026, 1, 1),
-    schedule=None,
+    # Manual by default; the azd deploy sets AIRFLOW_DEMO_SCHEDULE (e.g. */5 * * * *).
+    schedule=os.environ.get("AIRFLOW_DEMO_SCHEDULE") or None,
     catchup=False,
+    max_active_runs=1,
     is_paused_upon_creation=False,
     render_template_as_native_obj=True,
     default_args={
