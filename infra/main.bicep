@@ -306,12 +306,13 @@ var datadogEnvVars = enableDatadog ? [
 // component except the api-server itself, where the Execution API lives (tasks
 // started by the scheduler, triggers and DAG parsing all report through it).
 // OTEL_RESOURCE_ATTRIBUTES per Datadog's ACA managed-agent guide: cloud.provider,
-// cloud.platform and the app's cloud.resource_id are required; version comes
+// cloud.platform and the app's cloud.resource_id are required, cloud.region is
+// recommended; version comes
 // from service.version. The managed agent's pipeline maps Datadog `env` only
 // from the older deployment.environment key, so set it alongside .name.
-func otelServiceEnv(enabled bool, service string, resourceId string, ddEnv string, version string) array => enabled ? [
+func otelServiceEnv(enabled bool, service string, resourceId string, region string, ddEnv string, version string) array => enabled ? [
   { name: 'OTEL_SERVICE_NAME', value: service }
-  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},deployment.environment=${ddEnv},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
+  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},cloud.region=${region},deployment.environment=${ddEnv},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
 ] : []
 // Components that make ARM calls (the scheduler runs the operator's tasks, the
 // triggerer polls) get `requests` instrumentation, so each call is a span under
@@ -319,6 +320,13 @@ func otelServiceEnv(enabled bool, service string, resourceId string, ddEnv strin
 // entrypoint; pinned to the image's OTel SDK (1.45.2 <-> 0.66b2).
 var httpTracingEnv = enableDatadog ? [
   { name: '_PIP_ADDITIONAL_REQUIREMENTS', value: 'opentelemetry-instrumentation-requests==0.66b2' }
+] : []
+// The sample ACA Job's own env: what a job needs to send OpenLineage events
+// straight to Datadog (see airflow/dags/jobs/contoso_store_job.py).
+var jobLineageEnv = enableDatadog ? [
+  { name: 'DD_API_KEY', secretRef: 'dd-api-key' }
+  { name: 'DD_SITE', value: datadogSite }
+  { name: 'OPENLINEAGE_NAMESPACE', value: datadogEnv }
 ] : []
 var airflowVersion = last(split(airflowImage, ':'))
 var appIdPrefix = '${resourceGroup().id}/providers/Microsoft.App/containerApps'
@@ -375,7 +383,7 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
             'airflow db migrate && (airflow fab-db migrate || true) && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && exec airflow api-server --host 0.0.0.0 --port 8080'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', datadogEnv, airflowVersion))
+          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', location, datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -409,7 +417,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', datadogEnv, airflowVersion), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowVersion), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -443,7 +451,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', datadogEnv, airflowVersion), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', location, datadogEnv, airflowVersion), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -477,7 +485,7 @@ resource airflowDagProcessor 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow dag-processor' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', datadogEnv, airflowVersion))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', location, datadogEnv, airflowVersion))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -500,6 +508,7 @@ resource sampleJob 'Microsoft.App/jobs@2024-03-01' = {
       triggerType: 'Manual'
       replicaRetryLimit: 1
       replicaTimeout: 1800
+      secrets: enableDatadog ? [ { name: 'dd-api-key', value: datadogApiKey } ] : []
     }
     template: {
       containers: [
@@ -507,6 +516,9 @@ resource sampleJob 'Microsoft.App/jobs@2024-03-01' = {
           name: 'worker'
           image: sampleJobImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
+          // Lets a job report its own OpenLineage run to Datadog. The operator keeps
+          // these when it overrides env per execution, and adds the parent run.
+          env: jobLineageEnv
         }
       ]
     }

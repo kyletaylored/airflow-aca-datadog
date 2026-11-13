@@ -212,3 +212,38 @@ def test_name_arm_span_sets_resource_only_for_arm_calls():
     span = Span(recording=False)
     aca._name_arm_span(span, arm)
     assert span.attrs == {}
+
+
+# --- OpenLineage parent env -------------------------------------------------
+
+def test_openlineage_parent_env_uses_provider_macros(monkeypatch):
+    import sys
+    import types
+
+    macros = types.ModuleType("airflow.providers.openlineage.plugins.macros")
+    macros.lineage_parent_id = lambda ti: f"ns/{ti.dag_id}.{ti.task_id}/run-1"
+    macros.lineage_root_parent_id = lambda ti: f"ns/{ti.dag_id}/root-1"
+    monkeypatch.setitem(sys.modules, "airflow.providers.openlineage.plugins.macros", macros)
+
+    ti = types.SimpleNamespace(dag_id="d", task_id="t")
+    assert aca.openlineage_parent_env(ti) == {
+        "OPENLINEAGE_PARENT_ID": "ns/d.t/run-1",
+        "OPENLINEAGE_ROOT_PARENT_ID": "ns/d/root-1",
+    }
+
+
+def test_openlineage_parent_env_never_raises(monkeypatch):
+    import sys
+    import types
+
+    macros = types.ModuleType("airflow.providers.openlineage.plugins.macros")
+
+    def boom(ti):
+        raise RuntimeError("no dag run")
+
+    macros.lineage_parent_id = macros.lineage_root_parent_id = boom
+    monkeypatch.setitem(sys.modules, "airflow.providers.openlineage.plugins.macros", macros)
+    assert aca.openlineage_parent_env(object()) == {}
+
+    monkeypatch.setitem(sys.modules, "airflow.providers.openlineage.plugins.macros", None)
+    assert aca.openlineage_parent_env(object()) == {}  # provider not installed

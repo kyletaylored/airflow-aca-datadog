@@ -52,7 +52,9 @@ to drive — no servers to manage, scale-to-zero job execution, per-execution bi
 
 ## Quick start (local, ~5 minutes)
 
-Run the exact same Airflow stack on your laptop with Docker before touching Azure.
+Run the DAGs and operator on your laptop with Docker before touching Azure. The
+local stack still uses Airflow 2.10 (the code keeps Airflow 2 fallbacks); the
+Azure deploy runs Airflow 3.4.
 
 ```bash
 git clone https://github.com/hetvip2/airflow-hosted-on-aca
@@ -136,18 +138,119 @@ Airflow picks up the changes within a minute — no redeploy needed.
 | `POSTGRES_ZONE` | _(Azure picks)_ | Pin an availability zone (`1`/`2`/`3`) if creation fails with `SkuNotAvailable` |
 | `POSTGRES_LOCATION` | _(same as `AZURE_LOCATION`)_ | Put only Postgres in another region if the SKU isn't offered in yours |
 | `AIRFLOW_ADMIN_USER` | `airflow` | Airflow web UI admin username |
-| `AIRFLOW_SECRET_KEY` | _(random per start)_ | Webserver `secret_key`; set it so sessions/CSRF survive restarts and new revisions |
+| `AIRFLOW_SECRET_KEY` | _(random per start)_ | API server `secret_key` and JWT secret; set it so sessions/CSRF survive restarts and new revisions |
 | `ASSIGN_JOBS_ROLE` | `true` | Set to `false` to skip the identity's role assignment when you lack Owner/UAA (see below) |
 | `DEMO_DAG_SCHEDULE` | `*/5 * * * *` | Schedule for the bundled DAGs (set to an empty string for manual-only) |
 | `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` (merged with the resource group's tags) |
 | `DD_API_KEY` | _(empty)_ | Datadog API key. Setting it enables OTel traces + Data Jobs Monitoring (see [Datadog](#datadog-opentelemetry-traces--data-jobs-monitoring)) |
 | `DD_SITE` | `datadoghq.com` | Datadog site (`us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`, …) |
-| `DD_OTEL_SIGNALS` | `traces,metrics,logs` | Which OTel signals the managed agent sends to Datadog |
+| `TELEMETRY_SIGNALS` | `traces,metrics,logs` | This template's setting (not a Datadog or OTel variable): which OTel signals Airflow emits and the managed agent sends to Datadog |
 | `DD_ENV` | `airflow-aca` | Datadog `env` tag on traces and the OpenLineage namespace |
 
 ---
 
 ## Datadog: OpenTelemetry traces + Data Jobs Monitoring
+
+### The minimum, for any Airflow 3 deployment
+
+There are two independent pieces, and each one is only environment variables. The
+official `apache/airflow` 3.x image already includes the OpenLineage provider and
+the OpenTelemetry SDK, so neither needs an install. **Start with Data Jobs
+Monitoring:** on its own it gives you a trace per DAG run in Datadog.
+
+| | Data Jobs Monitoring (OpenLineage) | APM (OpenTelemetry) |
+|---|---|---|
+| **You get** | Every DAG run and task run: status, duration, retries, failures, and dataset lineage. Also a trace per DAG run (DAG → tasks → jobs they launched). | Airflow's internals: the scheduler and the task process, plus calls tasks make (here, Azure ARM). Optionally Airflow metrics and logs carrying trace ids. |
+| **Set it on** | Scheduler and wherever tasks run (workers; with `LocalExecutor`, the scheduler) | Each component you want to see |
+| **Needs** | A Datadog API key | An OTLP endpoint that forwards to Datadog |
+
+**Data Jobs Monitoring.** Set these four variables ([Datadog guide](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/)):
+
+```bash
+OPENLINEAGE__TRANSPORT__TYPE=datadog
+DD_API_KEY=<datadog-api-key>     # from a secret
+DD_SITE=datadoghq.com            # your Datadog site
+OPENLINEAGE_NAMESPACE=<env>      # shows up as the env tag
+```
+
+The `datadog` transport needs `apache-airflow-providers-openlineage` 2.7.3+ (the
+3.x image's is newer). On an older provider, set
+`OPENLINEAGE_URL=https://data-obs-intake.<site>` and `OPENLINEAGE_API_KEY=<key>`
+instead of the first three.
+
+**APM.** Turn on Airflow's native tracing and name each component:
+
+```bash
+AIRFLOW__TRACES__OTEL_ON=True
+OTEL_SERVICE_NAME=airflow-scheduler                # per component
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>
+```
+
+Then give Airflow an OTLP endpoint:
+
+- **On Azure Container Apps:** enable the environment's
+  [managed OpenTelemetry agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
+  with a Datadog destination (site and API key). ACA injects the endpoint into every
+  app. Don't set any `OTEL_EXPORTER_OTLP_*` variable yourself: if you set even one,
+  ACA stops injecting all of them. Extend `OTEL_RESOURCE_ATTRIBUTES` as
+  [Datadog's ACA managed-agent guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/)
+  describes, so Datadog ties each service to its container app:
+  `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`.
+  Keep `deployment.environment=<env>` in the list too: the managed agent sets the
+  Datadog `env` tag only from that key.
+- **Anywhere else:** point `OTEL_EXPORTER_OTLP_ENDPOINT` at a Datadog Agent with
+  OTLP ingest turned on (for example `http://<agent>:4317`).
+
+Everything else in this template is optional on top of that: Airflow metrics, logs,
+Azure API spans, and ACA Jobs reporting their own runs. All of it is described below.
+
+### OpenLineage (DJM) vs OpenTelemetry (APM), for a pipeline team
+
+They are not the same data. OpenLineage reports **what your pipelines did**: one
+event when each DAG run, task run, or launched job starts and ends, with its status,
+timing, configuration and datasets. OpenTelemetry reports **how Airflow did the
+work**: fine-grained spans inside Airflow's own processes, plus Airflow's metrics and
+logs. In Datadog, DJM's services are your DAGs (`contoso_sales`); APM's services are
+Airflow components (`airflow-aca-scheduler`). They arrive as separate traces, so tie
+them together by DAG ID, run ID and task ID.
+
+| Question a pipeline owner asks | Data Jobs Monitoring (OpenLineage) | APM (OpenTelemetry) |
+|---|---|---|
+| Did last night's run succeed? Which task failed, and why? | ✅ Status of each DAG run and task, try number, error message and stack trace | Partly: errors on the task's span |
+| Is it slower than usual, or late? | ✅ Run and task duration history per DAG, monitors on job status and duration | Task-process timing only |
+| What did it read and write? What is downstream of a broken run? | ✅ Dataset lineage (from operators that report it, and from jobs like `contoso_store_job`) | ❌ |
+| What did a task launch (ACA Job, Databricks, Spark), and how did that go? | ✅ Child job runs nested under the task, when the job reports its parent | ❌ (unless the job is OTel-instrumented too) |
+| Which operator, owner, tags, params, schedule, run type? | ✅ Attached to every run as tags | Some, as span attributes |
+| Where did the time go *inside* a task: queueing, the scheduler, an API call? | ❌ | ✅ Scheduler/worker/triggerer spans and HTTP client spans (here: each Azure ARM call, with latency and status code) |
+| Is Airflow itself healthy (heartbeats, executor and pool slots, DAG parse time)? | ❌ | ✅ Airflow's OTel metrics |
+| Task logs next to the run | When logs are collected with `source:airflow` | ✅ Logs carrying trace ids (this template's log handler) |
+
+**Rule of thumb:** the team that owns the DAGs starts with Data Jobs Monitoring,
+because it is organized around DAGs and data. APM is for the team that runs
+Airflow itself, or for when a slow task's cause sits inside Airflow or in the
+services a task calls.
+
+### Airflow 2 vs Airflow 3
+
+This template started on Airflow 2.10 and now runs 3.4. The Data Jobs Monitoring
+setup is the same on both
+([Datadog's Kubernetes tab](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/?tab=kubernetes)
+is what we followed, since ACA apps are configured the same way: env vars on the
+scheduler and workers). The OpenTelemetry setup is where they differ.
+
+| | Airflow 2 (2.7 to 2.10) | Airflow 3 |
+|---|---|---|
+| **OpenLineage provider** | Install and pin it on the scheduler and workers yourself (we used `apache-airflow-providers-openlineage==2.8.0`, Datadog's pick for 2.10). The `datadog` transport needs 2.7.3+. | Included in the official image (3.4.0 ships 2.21). Nothing to install. |
+| **DJM variables** | The same four. On 2.7/2.8 with the `OPENLINEAGE_URL` form, also set `AIRFLOW__OPENLINEAGE__CONFIG_PATH=""` and `AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS=""`. | The same four. |
+| **Trace export** | Airflow's own OTel exports only to its `[traces] otel_host`/`otel_port` settings over OTLP/HTTP, and ignores the standard `OTEL_EXPORTER_OTLP_*` variables that ACA injects (gRPC). | Reads the standard `OTEL_EXPORTER_OTLP_*` variables and defaults to gRPC, so the endpoint ACA injects just works. |
+| **Service name** | `AIRFLOW__TRACES__OTEL_SERVICE` | `OTEL_SERVICE_NAME` |
+| **What it took on ACA** | Startup pip installs of the OTel SDK and instrumentations, running every component under `opentelemetry-instrument`, a gunicorn workaround for the webserver, and a custom plugin to build DAG-run traces (see this repo's history before commit `a1410cd`). | `AIRFLOW__TRACES__OTEL_ON=True` (and `AIRFLOW__METRICS__OTEL_ON=True` for metrics). |
+| **Components** | webserver, scheduler, triggerer | api-server, scheduler, triggerer, dag-processor (each reports as its own service) |
+
+If you are still on Airflow 2, start with Data Jobs Monitoring only. It needs just
+the provider and four variables, and it already gives you a trace per DAG run.
+
+### What this template sets up
 
 Set a Datadog API key before `azd up` and the deploy wires up two things:
 
@@ -182,13 +285,26 @@ Airflow 3 reads those standard variables natively, so the deploy only sets:
 
 Each component reports as its own service: `airflow-aca-api-server`,
 `airflow-aca-scheduler`, `airflow-aca-triggerer`, `airflow-aca-dag-processor`
-(`env:$DD_ENV`). `DD_OTEL_SIGNALS` (default `traces,metrics,logs`) picks the signals.
+(`env:$DD_ENV`). The template's `TELEMETRY_SIGNALS` setting (default
+`traces,metrics,logs`) picks the signals.
 
 **2. OpenLineage → [Data Jobs Monitoring](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/).**
 The image's OpenLineage provider (2.21) supports Datadog's native transport, so
 the deploy only sets `OPENLINEAGE__TRANSPORT__TYPE=datadog`, `DD_API_KEY`, `DD_SITE`
 and `OPENLINEAGE_NAMESPACE=$DD_ENV`. DAG and task runs appear under
 **Data Observability → Jobs Monitoring** with `env:$DD_ENV`.
+
+**3. ACA Job runs nested under the task that started them.** The operator passes
+each execution `OPENLINEAGE_PARENT_ID` and `OPENLINEAGE_ROOT_PARENT_ID` (the task's
+and DAG run's `{namespace}/{job_name}/{run_id}`, the format dbt-ol also reads).
+A job that sends its own OpenLineage START/COMPLETE events, with those as its
+parent run, appears in Datadog under that Airflow task, the same way Databricks
+runs do. Its input and output datasets join the lineage graph. The sample ACA Job
+gets `DD_API_KEY` (as a job secret), `DD_SITE` and `OPENLINEAGE_NAMESPACE` for
+this. [`airflow/dags/jobs/contoso_store_job.py`](airflow/dags/jobs/contoso_store_job.py)
+is a stdlib-only example: in your own job you can do the same with the
+`openlineage-python` client and `OPENLINEAGE__TRANSPORT__TYPE=datadog`. Pass
+`pass_openlineage_parent=False` to the operator to turn this off.
 
 Leave `DD_API_KEY` empty to deploy without any of this. The managed agent has no
 Key Vault integration, so the key is passed as a secure deployment parameter, and
@@ -396,6 +512,7 @@ orchestration, version-controlled with the rest of the DAG.
 airflow-hosted-on-aca/
 ├─ airflow/
 │  ├─ dags/                 # aca_jobs_example, aca_jobs_pipeline, contoso_sales (demo)
+│  │  └─ jobs/              # code the contoso_sales ACA Jobs run (reports OpenLineage)
 │  ├─ plugins/
 │  │  ├─ operators/         # AzureContainerAppsJobOperator + ARM/auth helpers
 │  │  ├─ triggers/          # async trigger for deferrable execution

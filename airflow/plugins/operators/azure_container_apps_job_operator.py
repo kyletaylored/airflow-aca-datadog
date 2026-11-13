@@ -55,6 +55,13 @@ class AzureContainerAppsJobOperator(BaseOperator):
     ``DefaultAzureCredential`` (managed identity / az login). ``subscription_id``
     and ``resource_group`` may also be stored in the connection's *extra* so DAGs
     need even less inline config.
+
+    **Lineage.** When the OpenLineage provider is installed, each execution gets
+    ``OPENLINEAGE_PARENT_ID`` and ``OPENLINEAGE_ROOT_PARENT_ID`` (the task's and
+    DAG run's ``{namespace}/{job_name}/{run_id}``). A job that emits OpenLineage
+    events with them as its parent shows up under this task in Datadog. Turn it
+    off with ``pass_openlineage_parent=False``; it is skipped with
+    ``job_start_body``, which is sent as-is.
     """
 
     template_fields = (
@@ -93,6 +100,7 @@ class AzureContainerAppsJobOperator(BaseOperator):
         deferrable: bool | None = None,
         azure_conn_id: str | None = None,
         managed_identity_client_id: str | None = None,
+        pass_openlineage_parent: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -113,6 +121,7 @@ class AzureContainerAppsJobOperator(BaseOperator):
         self.deferrable = _default_deferrable() if deferrable is None else deferrable
         self.azure_conn_id = azure_conn_id
         self.managed_identity_client_id = managed_identity_client_id
+        self.pass_openlineage_parent = pass_openlineage_parent
 
     def _auth(self) -> dict[str, Any]:
         """Serializable auth config shared by the operator and its trigger."""
@@ -125,6 +134,10 @@ class AzureContainerAppsJobOperator(BaseOperator):
         job_ref = self._resolve_job_ref()
         auth = self._auth()
         token = aca.get_token(auth, self.log)
+        if self.pass_openlineage_parent and not self.job_start_body:
+            lineage_env = aca.openlineage_parent_env(context["ti"], self.log)
+            # The DAG's own env_vars win, so a job can be pointed elsewhere.
+            self.env_vars = {**lineage_env, **(self.env_vars or {})} or None
         start_body = self._build_start_body(job_ref, token)
         execution_name = aca.start_execution(
             job_ref, token, start_body, self.api_version, self.log

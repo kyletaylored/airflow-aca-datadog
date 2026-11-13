@@ -51,7 +51,7 @@
       "value": "${DEMO_DAG_SCHEDULE=*/5 * * * *}"
     },
     "datadogOtelSignals": {
-      "value": "${DD_OTEL_SIGNALS=traces,metrics,logs}"
+      "value": "${TELEMETRY_SIGNALS=traces,metrics,logs}"
     },
     "datadogEnv": {
       "value": "${DD_ENV=airflow-aca}"

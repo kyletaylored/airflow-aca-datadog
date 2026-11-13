@@ -83,3 +83,38 @@ def test_auth_dict():
         "managed_identity_client_id": "mi-1",
     }
 
+
+
+def test_execute_passes_openlineage_parent(monkeypatch):
+    from operators import aca_jobs_common as aca
+
+    op = _op(subscription_id="s", resource_group="r", job_name="j",
+             env_vars={"MODE": "store"}, deferrable=False)
+    monkeypatch.setattr(aca, "get_token", lambda *a, **k: "tok")
+    monkeypatch.setattr(aca, "openlineage_parent_env", lambda ti, log=None: {
+        "OPENLINEAGE_PARENT_ID": "ns/d.t/run", "MODE": "ignored"})
+    monkeypatch.setattr(op, "_get_base_container", lambda *a, **k: {"name": "c", "image": "img"})
+    sent = {}
+    monkeypatch.setattr(aca, "start_execution",
+                        lambda ref, tok, body, *a, **k: sent.setdefault("body", body) and "exec-1")
+    monkeypatch.setattr(op, "_wait_for_terminal_state", lambda *a, **k: None)
+
+    assert op.execute({"ti": object()}) == "exec-1"
+    env = {e["name"]: e["value"] for e in sent["body"]["containers"][0]["env"]}
+    assert env == {"OPENLINEAGE_PARENT_ID": "ns/d.t/run", "MODE": "store"}  # DAG wins
+
+
+def test_execute_skips_openlineage_parent_when_disabled(monkeypatch):
+    from operators import aca_jobs_common as aca
+
+    op = _op(subscription_id="s", resource_group="r", job_name="j",
+             deferrable=False, pass_openlineage_parent=False)
+    monkeypatch.setattr(aca, "get_token", lambda *a, **k: "tok")
+    monkeypatch.setattr(aca, "openlineage_parent_env",
+                        lambda *a, **k: pytest.fail("should not be called"))
+    sent = {}
+    monkeypatch.setattr(aca, "start_execution",
+                        lambda ref, tok, body, *a, **k: sent.setdefault("body", body) or "exec-1")
+    monkeypatch.setattr(op, "_wait_for_terminal_state", lambda *a, **k: None)
+    op.execute({"ti": object()})
+    assert sent["body"] == {}  # still runs the job with its defaults

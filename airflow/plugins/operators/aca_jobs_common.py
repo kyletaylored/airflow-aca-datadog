@@ -447,3 +447,34 @@ def instrument_requests() -> bool:
 
 
 instrument_requests()
+
+
+# --- OpenLineage: hand the task's run to the job --------------------------------
+# A job that emits its own OpenLineage events with these as its ParentRunFacet
+# shows up nested under the Airflow task in Datadog (Data Jobs Monitoring and the
+# trace view), the same way the Databricks provider links Databricks runs. The
+# format is '{namespace}/{job_name}/{run_id}', the one dbt-ol reads and the
+# provider's lineage_parent_id / lineage_root_parent_id macros produce.
+
+OPENLINEAGE_PARENT_ENV = "OPENLINEAGE_PARENT_ID"
+OPENLINEAGE_ROOT_PARENT_ENV = "OPENLINEAGE_ROOT_PARENT_ID"
+
+
+def openlineage_parent_env(task_instance: Any, log: Any = None) -> dict[str, str]:
+    """Env vars identifying this task's OpenLineage run; {} without the provider."""
+    try:
+        from airflow.providers.openlineage.plugins.macros import (
+            lineage_parent_id,
+            lineage_root_parent_id,
+        )
+    except ImportError:
+        return {}
+    try:
+        return {
+            OPENLINEAGE_PARENT_ENV: lineage_parent_id(task_instance),
+            OPENLINEAGE_ROOT_PARENT_ENV: lineage_root_parent_id(task_instance),
+        }
+    except Exception as exc:  # lineage must never fail the task
+        if log:
+            log.warning("Not passing OpenLineage parent run to the job: %s", exc)
+        return {}

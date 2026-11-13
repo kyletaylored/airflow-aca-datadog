@@ -14,9 +14,17 @@ Why this needs an orchestrator (and plain ACA Jobs can't do it alone):
 
 Zero build, nothing to host:
     Each task runs the stock public image ``python:3.12-slim`` on YOUR ACA
-    Job and hands it a tiny inline program via a command override. No custom
-    image, no registry, no secrets baked in. The same operator/DAG works in
-    both templates (bring-your-own Airflow, or Airflow hosted on ACA).
+    Job and hands it the job's code (``jobs/contoso_store_job.py``, plain
+    stdlib Python) via a command override. No custom image, no registry, no
+    secrets baked in. The same operator/DAG works in both templates
+    (bring-your-own Airflow, or Airflow hosted on ACA).
+
+What Datadog shows (with the Datadog settings on):
+    * Data Jobs Monitoring: the DAG run, each task, and each ACA Job execution
+      nested under the task that started it (the job reports its own
+      OpenLineage run with the task as parent), plus lineage from every
+      store's sales dataset into the company total.
+    * A failed store (chaos) as a failed job run, then its successful retry.
 
 Drop this file into ``airflow/dags/`` of either template repo and trigger
 ``contoso_sales`` (the demo scripts do this for you).
@@ -25,6 +33,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 try:  # Airflow 3
     from airflow.providers.standard.operators.empty import EmptyOperator
@@ -48,43 +57,12 @@ except ModuleNotFoundError:  # repo root on PYTHONPATH (tests / local)
 # so the ACA Job's own base image is irrelevant.
 DEMO_IMAGE = "python:3.12-slim"
 
-# The entire "store" workload, inline. Pure stdlib so python:slim runs it as-is.
-# No Jinja braces ({{ }}) here, so Airflow templating passes it through untouched.
-CONTOSO_PY = (
-    "import os, sys, time, hashlib\n"
-    "def sales(store, date):\n"
-    "    h = hashlib.sha256((store + '|' + date).encode()).hexdigest()\n"
-    "    return 1000 + int(h[:6], 16) % 9000\n"
-    "mode = os.environ.get('MODE', 'store')\n"
-    "date = os.environ.get('BUSINESS_DATE', 'today')\n"
-    "try_num = sys.argv[1] if len(sys.argv) > 1 else '1'\n"
-    "if mode == 'finalize':\n"
-    "    stores = [s for s in os.environ.get('STORE_LIST', '').split('|') if s]\n"
-    "    total = 0\n"
-    "    print('=' * 54)\n"
-    "    print('CONTOSO  daily sales rollup   ' + date)\n"
-    "    print('-' * 54)\n"
-    "    for s in stores:\n"
-    "        v = sales(s, date); total += v\n"
-    "        print('  {:<24} ${:>9,}'.format(s, v))\n"
-    "    print('-' * 54)\n"
-    "    print('  TOTAL across {} stores:   ${:,}'.format(len(stores), total))\n"
-    "    print('=' * 54)\n"
-    "    sys.exit(0)\n"
-    "store = os.environ.get('STORE_NAME', 'Unknown Store')\n"
-    "amount = sales(store, date)\n"
-    "print(store + ' is tallying its registers for ' + date + ' ...')\n"
-    "time.sleep(int(os.environ.get('WORK_SECONDS', '4')))\n"
-    "if os.environ.get('CHAOS') == '1' and store == os.environ.get('CHAOS_STORE', ''):\n"
-    "    if try_num == '1':\n"
-    "        sys.stderr.write('!! ' + store + ' register crashed before reporting (attempt 1).\\n')\n"
-    "        sys.exit(1)\n"
-    "    print(store + ' register recovered on retry (attempt ' + try_num + ').')\n"
-    "print('{} sold ${:,} today.'.format(store, amount))\n"
-    "sys.exit(0)\n"
-)
+# The job's code is a plain Python file next to this DAG (run it locally with
+# MODE=store STORE_NAME=Austin python jobs/contoso_store_job.py). It ships to
+# the stock image inline, so there is nothing to build or push.
+JOB_SOURCE = (Path(__file__).parent / "jobs" / "contoso_store_job.py").read_text()
 
-RUN_PROGRAM = ["python", "-c", CONTOSO_PY]
+RUN_PROGRAM = ["python", "-c", JOB_SOURCE]
 
 DEFAULT_STORES = [
     "Seattle",
@@ -95,6 +73,16 @@ DEFAULT_STORES = [
     "Chicago",
     "New York",
 ]
+
+def _business_date(params: dict, context: dict) -> str:
+    """The run's date label. Airflow 3 runs triggered by hand have no logical
+    date (so no ``ds``); fall back to when the run was scheduled to start."""
+    if params.get("business_date"):
+        return params["business_date"]
+    if context.get("ds"):
+        return context["ds"]
+    return context["dag_run"].run_after.strftime("%Y-%m-%d")
+
 
 with DAG(
     dag_id="contoso_sales",
@@ -153,11 +141,13 @@ with DAG(
         """One env-var bundle per store: the fan-out shards."""
         p = params or {}
         stores = p.get("stores") or DEFAULT_STORES
-        date = p.get("business_date") or context["ds"]
+        date = _business_date(p, context)
         chaos = "1" if p.get("chaos") else "0"
+        job_name = context["var"]["value"].get("aca_job_name", "")
         return [
             {
                 "MODE": "store",
+                "ACA_JOB_NAME": job_name,
                 "STORE_NAME": s,
                 "BUSINESS_DATE": date,
                 "WORK_SECONDS": str(p.get("work_seconds", 4)),
@@ -172,9 +162,10 @@ with DAG(
         """Env for the roll-up job: the list of stores + the date."""
         p = params or {}
         stores = p.get("stores") or DEFAULT_STORES
-        date = p.get("business_date") or context["ds"]
+        date = _business_date(p, context)
         return {
             "MODE": "finalize",
+            "ACA_JOB_NAME": context["var"]["value"].get("aca_job_name", ""),
             "STORE_LIST": "|".join(stores),
             "BUSINESS_DATE": date,
         }
@@ -197,6 +188,20 @@ with DAG(
         execution_timeout_seconds=1800,
     ).expand(env_vars=store_runs)
 
+    @task
+    def check_every_store_reported(
+        executions: list[str], params: dict | None = None
+    ) -> int:
+        """Quality gate: only roll up when every store has an ACA execution."""
+        expected = len((params or {}).get("stores") or DEFAULT_STORES)
+        reported = len([e for e in executions if e])
+        if reported != expected:
+            raise ValueError(f"Only {reported} of {expected} stores reported; not rolling up.")
+        print(f"All {reported} stores reported.")
+        return reported
+
+    gate = check_every_store_reported(report_store.output)
+
     # Roll up: runs only after every store has reported.
     finalize = AzureContainerAppsJobOperator(
         task_id="roll_up_company_total",
@@ -212,4 +217,4 @@ with DAG(
         execution_timeout_seconds=1800,
     )
 
-    start >> store_runs >> report_store >> finalize
+    start >> store_runs >> report_store >> gate >> finalize
