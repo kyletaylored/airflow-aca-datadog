@@ -341,6 +341,89 @@ which needs Owner or User Access Administrator. With only Contributor, set
 | `ASSIGN_JOBS_ROLE` | `true` | `false` skips the managed identity's role assignment |
 | `AZURE_LOCATION`, `NAME_PREFIX`, `POSTGRES_*`, `AIRFLOW_ADMIN_*`, `AIRFLOW_SECRET_KEY` | | Airflow deployment settings; see [`infra/main.parameters.json`](infra/main.parameters.json) and the [source repo](https://github.com/hetvip2/airflow-hosted-on-aca#configurable-parameters) |
 
+### Continuous deployment
+
+Merging to `main` doesn't deploy anything until you turn on
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). Once it's on, a push
+to `main` deploys based on what changed:
+
+| Changed paths | What runs |
+|---|---|
+| `infra/**`, `azure.yaml` | `azd provision`: the Bicep deployment, then the DAG and plugin upload |
+| `airflow/dags/**`, `airflow/plugins/**`, `scripts/upload-dags.sh` | The DAG and plugin upload only |
+
+You can also run it by hand from the Actions tab and pick `dags` or `infra`.
+
+The workflow signs in to Azure with OpenID Connect, so no Azure credential is
+stored in GitHub. It reuses the resource group and azd environment from your first
+`azd up`. One-time setup, run from the checkout that has that azd environment:
+
+1. **Create an identity GitHub can sign in as.** It needs a federated credential
+   for the repo's `azure` GitHub environment and Contributor on the resource group:
+
+   ```bash
+   REPO=<owner>/<repo>
+   RG=$(azd env get-value AZURE_RESOURCE_GROUP)
+   SUB=$(azd env get-value AZURE_SUBSCRIPTION_ID)
+
+   APP_ID=$(az ad app create --display-name "$REPO-deploy" --query appId -o tsv)
+   az ad sp create --id "$APP_ID"
+   az ad app federated-credential create --id "$APP_ID" --parameters "{
+     \"name\": \"github-azure-environment\",
+     \"issuer\": \"https://token.actions.githubusercontent.com\",
+     \"subject\": \"repo:$REPO:environment:azure\",
+     \"audiences\": [\"api://AzureADTokenExchange\"]
+   }"
+   az role assignment create --assignee "$APP_ID" --role Contributor \
+     --scope "/subscriptions/$SUB/resourceGroups/$RG"
+   ```
+
+2. **Create the `azure` GitHub environment** and copy the settings into it. The
+   secrets are piped from the azd environment, so they never appear in your shell
+   history:
+
+   ```bash
+   gh api -X PUT "repos/$REPO/environments/azure"
+
+   gh variable set AZURE_CLIENT_ID --env azure --repo "$REPO" --body "$APP_ID"
+   gh variable set AZURE_TENANT_ID --env azure --repo "$REPO" --body "$(az account show --query tenantId -o tsv)"
+   for name in AZURE_SUBSCRIPTION_ID AZURE_ENV_NAME AZURE_LOCATION AZURE_RESOURCE_GROUP \
+               DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS POSTGRES_ZONE; do
+     value=$(azd env get-value "$name" 2>/dev/null) && [ -n "$value" ] &&
+       gh variable set "$name" --env azure --repo "$REPO" --body "$value"
+   done
+   for name in DD_API_KEY POSTGRES_ADMIN_PASSWORD AIRFLOW_ADMIN_PASSWORD AIRFLOW_SECRET_KEY; do
+     azd env get-value "$name" | gh secret set "$name" --env azure --repo "$REPO"
+   done
+   ```
+
+   Also copy any other setting you changed from its default, such as
+   `TELEMETRY_SIGNALS`, `NAME_PREFIX` or `POSTGRES_LOCATION`.
+
+3. **Optional: require approval.** In the repo's Settings → Environments → `azure`,
+   add yourself as a required reviewer. Each deploy then waits for you to approve it.
+
+4. **Turn it on:**
+
+   ```bash
+   gh variable set AZURE_DEPLOY_ENABLED --repo "$REPO" --body true
+   ```
+
+Things to know:
+
+- **The secrets must keep their original values.** A new Postgres password or
+  Airflow secret key would lock Airflow out of its database and sessions. The
+  workflow fails if any of the four secrets is missing, rather than deploying
+  without them.
+- **The pipeline doesn't assign roles.** Contributor can't create role assignments,
+  so the workflow deploys with `ASSIGN_JOBS_ROLE=false`. The managed identity's role
+  from your first `azd up` stays in place.
+- **GitHub variables can't be empty.** A variable you don't set uses the parameter
+  file's default. Because of that, `DEMO_DAG_SCHEDULE` can't be set to manual-only
+  (an empty string) through the pipeline.
+- **Forks and other repos skip the deploy**, because `AZURE_DEPLOY_ENABLED` isn't set
+  there.
+
 ---
 
 ## Known issues

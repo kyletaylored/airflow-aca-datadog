@@ -1,0 +1,154 @@
+name: Deploy
+
+# Deploys merged changes to the Azure resource group. Off until the repository
+# variable AZURE_DEPLOY_ENABLED is "true"; setup is in the README's
+# "Continuous deployment" section.
+#
+#   infra/**, azure.yaml          -> azd provision (Bicep, then the DAG upload hook)
+#   airflow/dags, airflow/plugins -> DAG and plugin upload only
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "azure.yaml"
+      - "airflow/dags/**"
+      - "airflow/plugins/**"
+      - "scripts/upload-dags.sh"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "What to deploy"
+        type: choice
+        options: [dags, infra]
+        default: dags
+
+permissions:
+  contents: read
+
+# One deploy at a time; a queued one waits rather than cancelling a provision.
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest is moving to 26.04
+    outputs:
+      target: ${{ steps.plan.outputs.target }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide what to deploy
+        id: plan
+        env:
+          ENABLED: ${{ vars.AZURE_DEPLOY_ENABLED }}
+          EVENT: ${{ github.event_name }}
+          INPUT_TARGET: ${{ inputs.target }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$ENABLED" != "true" ]; then
+            echo "::notice::Deploy is off. Set the repository variable AZURE_DEPLOY_ENABLED=true to turn it on."
+            echo "target=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            target="$INPUT_TARGET"
+          elif [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # New branch or force push: no reliable diff, so deploy everything.
+            target=infra
+          else
+            changed="$(git diff --name-only "$BEFORE" "$GITHUB_SHA")"
+            if printf '%s\n' "$changed" | grep -qE '^(infra/|azure\.yaml$)'; then
+              target=infra
+            elif printf '%s\n' "$changed" | grep -qE '^(airflow/(dags|plugins)/|scripts/upload-dags\.sh$)'; then
+              target=dags
+            else
+              target=none
+            fi
+          fi
+
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "Deploy target: \`$target\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: plan
+    if: needs.plan.outputs.target == 'infra' || needs.plan.outputs.target == 'dags'
+    runs-on: ubuntu-24.04
+    # Holds the Azure identity, the azd settings and the secrets. Add required
+    # reviewers to it to approve each deploy.
+    environment: azure
+    permissions:
+      contents: read
+      id-token: write  # OIDC token for the federated credential
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: Azure/setup-azd@v2.4.0
+
+      - name: Log azd in with the same identity
+        run: |
+          azd auth login \
+            --client-id "$AZURE_CLIENT_ID" \
+            --tenant-id "$AZURE_TENANT_ID" \
+            --federated-credential-provider github
+
+      - name: Provision (Bicep and DAG upload)
+        if: needs.plan.outputs.target == 'infra'
+        env:
+          POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          AIRFLOW_ADMIN_PASSWORD: ${{ secrets.AIRFLOW_ADMIN_PASSWORD }}
+          AIRFLOW_SECRET_KEY: ${{ secrets.AIRFLOW_SECRET_KEY }}
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          # The pipeline identity can't assign roles; the role from the first
+          # deploy stays in place.
+          ASSIGN_JOBS_ROLE: ${{ vars.ASSIGN_JOBS_ROLE || 'false' }}
+          DD_SITE: ${{ vars.DD_SITE }}
+          DD_ENV: ${{ vars.DD_ENV }}
+          DEMO_DAG_SCHEDULE: ${{ vars.DEMO_DAG_SCHEDULE }}
+          RESOURCE_TAGS: ${{ vars.RESOURCE_TAGS }}
+          TELEMETRY_SIGNALS: ${{ vars.TELEMETRY_SIGNALS }}
+          NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+          POSTGRES_LOCATION: ${{ vars.POSTGRES_LOCATION }}
+          POSTGRES_ZONE: ${{ vars.POSTGRES_ZONE }}
+        run: |
+          # A changed password or secret key would lock Airflow out of its own
+          # database and sessions, and an empty DD_API_KEY turns Datadog off.
+          for name in POSTGRES_ADMIN_PASSWORD AIRFLOW_ADMIN_PASSWORD AIRFLOW_SECRET_KEY DD_API_KEY; do
+            eval "value=\${$name}"
+            if [ -z "$value" ]; then
+              echo "::error::Secret $name is not set on the 'azure' environment."
+              exit 1
+            fi
+          done
+          # An unset GitHub variable arrives as an empty string. Drop those so
+          # the parameter file's ${NAME=default} values apply.
+          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || unset "$name"
+          done
+          azd provision --no-prompt
+
+      - name: Upload DAGs and plugins
+        if: needs.plan.outputs.target == 'dags'
+        run: |
+          # Load the deployment's outputs (storage account, share name) into
+          # the azd environment, then run the same hook azd provision runs.
+          azd env refresh --no-prompt
+          azd hooks run postprovision --no-prompt
