@@ -371,7 +371,7 @@ stored in GitHub. It reuses the resource group and azd environment from your fir
    az ad app federated-credential create --id "$APP_ID" --parameters "{
      \"name\": \"github-azure-environment\",
      \"issuer\": \"https://token.actions.githubusercontent.com\",
-     \"subject\": \"repo:$REPO:environment:azure\",
+     \"subject\": \"repo:${REPO}:environment:azure\",
      \"audiences\": [\"api://AzureADTokenExchange\"]
    }"
    az role assignment create --assignee "$APP_ID" --role Contributor \
