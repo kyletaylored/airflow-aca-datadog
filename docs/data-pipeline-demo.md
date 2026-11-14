@@ -242,10 +242,29 @@ The scenarios use two more monitor types:
   and `SELECT count(*) AS dd_value FROM staging.orders` as the target. Set Format to
   Difference and alert below -50. It catches `breaking_schema`: raw keeps loading
   while staging is stuck.
-- **Job:** in the UI, New Monitor → Job, for failed runs of the `contoso_orders`
-  DAG. It catches `breaking_schema`. The monitors API takes these as type
-  `data-jobs alert`, but we haven't found a query format it accepts, so create this
-  one in the UI.
+- **Job:** failed runs of the `contoso_orders` DAG, which catches `breaking_schema`.
+  Create it in the UI (New Monitor → Job), or with the monitors API as type
+  `data-jobs alert`:
+
+  ```json
+  {
+    "name": "[contoso_dw] contoso_orders failed runs",
+    "type": "data-jobs alert",
+    "query": "formula(\"failed_runs(run_query)\").by(job_name).last(1h) > 0",
+    "options": {
+      "thresholds": {"critical": 0},
+      "variables": [{
+        "name": "run_query",
+        "job_type": "airflow.dag",
+        "jobs_query": "job_name:contoso_orders",
+        "query_dialect": "metric"
+      }]
+    }
+  }
+  ```
+
+  `failed_runs` counts *trailing* failed runs, so the monitor recovers as soon as the
+  DAG has a successful run. That's what scenario 2 has to work around.
 
 **Schema change monitors** and the Schema Changes page support Snowflake, BigQuery,
 Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and
@@ -329,7 +348,7 @@ subprocess.run(["airflow", "dags", "trigger", "contoso_orders",
 | `volume_drop` | Only 5% of the usual orders are generated | Only 5% of each landed batch is loaded; the rest is lost |
 | `skip_load` | No orders are generated | Nothing is loaded; the batches wait, and the next normal run catches up |
 | `schema_drift` | `raw.orders` gains a `promo_code` column. A normal run drops it again. | The same |
-| `breaking_schema` | After the load, `raw.orders.amount_cents` is renamed to `amount_minor`, so `staging_orders` fails (after its two retries, about 8 minutes) and the marts don't update. The next normal run renames the column back before it loads. | The same |
+| `breaking_schema` | After the load, `raw.orders.amount_cents` is renamed to `amount_minor`, so `staging_orders` fails (after its two retries, 5 to 8 minutes) and the marts don't update. The next normal run renames the column back before it loads. | The same |
 | `refund_bug` | The store sales mart counts every Denver order as a refund, so Denver's revenue is negative in `marts.daily_store_sales`. `staging.orders` is untouched, so `check_staging` passes. | The same |
 | `interval_minutes` | The window the order timestamps fall in (default 15) | Not used |
 
@@ -367,8 +386,15 @@ docs don't cover Data Observability yet, so try each one before you present it.
 
 ### 2. Rajesh: a schema change breaks staging
 
-- **Trigger:** `breaking_schema`.
-- **Wait:** about 8 minutes, while `staging_orders` uses up its two retries. In our test the attempts ran at 0, 2 and 8 minutes.
+- **Trigger:** `breaking_schema`, just after a scheduled run finishes (around :02,
+  :17, :32 or :47). The next scheduled run puts the column back, and the Job monitor
+  recovers once a run succeeds, so the failure needs to land a few minutes before the
+  next quarter hour. Don't pause the DAG: Airflow doesn't start any run of a paused
+  DAG, including manual ones. For a longer alert, trigger `breaking_schema` twice.
+  The second run breaks the column again after the first one fails.
+- **Wait:** 5 to 8 minutes, while `staging_orders` uses up its two retries. In our
+  tests the attempts ran 2 minutes apart, and once the last retry started 6 minutes
+  late. A run can also wait a few minutes to start if another run is still going.
 - **Alerts:** the Job monitor on `contoso_orders`, then the Source to Target monitor
   as `staging.orders` falls behind `raw.orders`, then freshness on
   `marts.daily_store_sales`.
@@ -432,8 +458,8 @@ doesn't include one.
 |---|---|---|---|
 | 1 | `null_customers` | 2 min | Nullness alert, then lineage up to the topic and down to `customer_value` |
 | 2 | `refund_bug` | 2 min | Negative-revenue alert. Staging is clean, the mart is not |
-| 3 | `breaking_schema` | 8 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
-| 4 | Next normal run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed run ends. The column is renamed back and staging catches up |
+| 3 | `breaking_schema`, just after a scheduled run | 5–8 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
+| 4 | Next scheduled run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed run ends. The column is renamed back and staging catches up |
 | 5 | `skip_load` | 45 min | Freshness alerts; trigger it before the session and come back to it |
 
 Run each trigger separately, because `max_active_runs` is 1: a run waits for the one
