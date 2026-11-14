@@ -166,12 +166,29 @@ INGEST_CUSTOMERS = [upsert_customers("0.02")]
 #   volume_drop    -> 5% of the normal volume
 #   skip_load      -> no orders at all
 #   schema_drift   -> raw.orders gains a promo_code column (dropped again when off)
+#   breaking_schema -> after the load, raw.orders.amount_cents is renamed to
+#                     amount_minor, so staging_orders fails. The next run renames it
+#                     back before it loads.
 ADD_PROMO_CODE = "ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text"
 DROP_PROMO_CODE = "ALTER TABLE raw.orders DROP COLUMN IF EXISTS promo_code"
 PURGE_OLD_ORDERS = "DELETE FROM raw.orders WHERE ordered_at < now() - interval '14 days'"
+BREAK_AMOUNT_COLUMN = "ALTER TABLE raw.orders RENAME COLUMN amount_cents TO amount_minor"
+RESTORE_AMOUNT_COLUMN = """
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'raw' AND table_name = 'orders' AND column_name = 'amount_minor'
+    ) THEN
+        ALTER TABLE raw.orders RENAME COLUMN amount_minor TO amount_cents;
+    END IF;
+END
+$$
+"""
 
 INGEST_ORDERS = [
     "{% if params.schema_drift %}" + ADD_PROMO_CODE + "{% else %}" + DROP_PROMO_CODE + "{% endif %}",
+    RESTORE_AMOUNT_COLUMN,
     f"""
     INSERT INTO raw.orders
         (order_id, customer_id, store, channel, items, amount_cents, currency, ordered_at, _batch_id)
@@ -198,7 +215,7 @@ INGEST_ORDERS = [
     ) AS batch
     ON CONFLICT (order_id) DO NOTHING
     """,
-    PURGE_OLD_ORDERS,
+    PURGE_OLD_ORDERS + "{% if params.breaking_schema %};\n" + BREAK_AMOUNT_COLUMN + "{% endif %}",
 ]
 
 # --- contoso_orders: ingest from the landing zone (stream mode) ----------------
@@ -258,12 +275,21 @@ FROM staging.orders
 
 # --- contoso_orders: marts -----------------------------------------------------
 
+# Rendered by Airflow. refund_bug stands for a bad change to this mart's refund
+# handling: every Denver order counts as a refund, so Denver's revenue goes negative.
+# staging.orders is untouched, so check_staging still passes.
 MART_DAILY_STORE_SALES = [
     "TRUNCATE marts.daily_store_sales",
     """
     INSERT INTO marts.daily_store_sales
         (sales_date, store, orders, revenue_usd, last_order_at, updated_at)
-    SELECT order_date, store, count(*), sum(amount_usd), max(ordered_at), now()
+    SELECT order_date, store, count(*),
+           {% if params.refund_bug -%}
+           sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END),
+           {%- else -%}
+           sum(amount_usd),
+           {%- endif %}
+           max(ordered_at), now()
     FROM staging.orders
     GROUP BY order_date, store
     """,
