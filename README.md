@@ -380,6 +380,10 @@ to `main` deploys based on what changed:
 |---|---|
 | `infra/**`, `azure.yaml` | `azd provision`: the Bicep deployment, then the DAG and plugin upload |
 | `airflow/dags/**`, `airflow/plugins/**`, `scripts/upload-dags.sh` | The DAG and plugin upload only |
+| `services/**` | The same upload, then a restart of the order-stream services |
+
+Before anything reaches Azure, the workflow runs the CI checks (lint, tests and the
+Bicep build) against the merged commit. If they fail, nothing is deployed.
 
 You can also run it by hand from the Actions tab and pick `dags` or `infra`.
 

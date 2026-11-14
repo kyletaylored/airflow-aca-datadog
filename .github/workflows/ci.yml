@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Deploy calls this before it deploys, so a merge only deploys once these pass.
+  workflow_call:
 
 jobs:
   test:
