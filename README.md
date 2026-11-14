@@ -27,35 +27,60 @@ and demo DAGs that show it off.
 
 ## Architecture
 
-### Deployment
+### How the components call each other
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph env["Azure Container Apps environment"]
-        direction LR
-        api["api-server<br/>ingress :8080"]
-        sched["scheduler<br/>LocalExecutor, runs tasks"]
-        trig["triggerer<br/>deferrable operators"]
-        dagp["dag-processor<br/>parses DAGs"]
-        job["ACA Job<br/>sample job"]
+        dagp["dag-processor<br/>Container App"]
+        subgraph schedApp["scheduler · Container App"]
+            sched["scheduler loop"]
+            task["task process<br/>LocalExecutor"]
+        end
+        api["api-server<br/>Container App"]
+        trig["triggerer<br/>Container App"]
+        job["ACA Job execution<br/>Container Apps Job"]
     end
+    arm["Azure Resource Manager<br/>management.azure.com"]
 
-    pg[("PostgreSQL Flexible Server<br/>metadata DB")]
-    share[("Azure Files share<br/>DAGs and plugins")]
-    arm["ARM Jobs API<br/>user-assigned managed identity,<br/>Contributor on the resource group"]
-
-    share -- "mounted at /opt/airflow/shared" --> env
-    api & sched & trig & dagp --> pg
-    sched & trig --> arm
-    arm -- "starts execution" --> job
+    dagp -- "1 parsed DAGs" --> sched
+    sched -- "2 starts the task" --> task
+    task -- "3 Execution API" --> api
+    task -- "4 start job" --> arm
+    arm -- "5 runs" --> job
+    task -- "6 defers" --> trig
+    trig -- "7 poll execution" --> arm
+    trig -- "8 job finished,<br/>resume the task" --> sched
 ```
 
-Four Airflow components run as container apps in one Container Apps environment.
-They share a PostgreSQL metadata database and mount DAGs and plugins from an Azure
-Files share. Tasks run on the scheduler (`LocalExecutor`). A task that uses the ACA
-Jobs operator starts an execution of an ACA Job through the Azure Resource Manager
-API, and the triggerer polls the execution while the task is deferred. Both
-authenticate with the user-assigned managed identity.
+Each box is a separate app in one Container Apps environment. For a DAG run of
+`contoso_sales`:
+
+1. The **dag-processor** parses the DAG files and stores them in the metadata
+   database, where the **scheduler** picks them up.
+2. The scheduler creates the DAG run. With `LocalExecutor`, it starts each task as a
+   process inside the scheduler's own container.
+3. The task process reports its state, and reads variables and XComs, through the
+   **api-server**'s Execution API.
+4. The ACA Jobs operator asks Azure Resource Manager to start an execution of the
+   ACA Job.
+5. ARM starts the execution as a **Container Apps Job**.
+6. The task defers, which hands the wait to the **triggerer** and frees the task's
+   slot.
+7. The triggerer polls ARM for the execution's status.
+8. When the execution finishes, the trigger's event (through the metadata
+   database) makes the scheduler resume the task, which records the result.
+
+The scheduler and triggerer authenticate to ARM with a user-assigned managed
+identity that has Contributor on the resource group. All four apps share a
+PostgreSQL Flexible Server metadata database and mount the DAGs and plugins from an
+Azure Files share at `/opt/airflow/shared`.
+
+Datadog's trace map for a `contoso_sales` run shows this same path. It goes from
+`airflow-aca-scheduler` to `airflow-aca-api-server`, then to the scheduler's task
+spans and `airflow-aca-triggerer`, and from both of those to
+`management.azure.com`. The `localhost` calls next to them are managed-identity
+token requests: ACA serves its identity endpoint inside each container.
 
 ### Telemetry to Datadog
 
