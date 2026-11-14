@@ -21,12 +21,17 @@ $key = az storage account keys list --account-name $account --query '[0].value' 
 
 az storage directory create --account-name $account --account-key $key --share-name $share --name dags --only-show-errors | Out-Null
 az storage directory create --account-name $account --account-key $key --share-name $share --name plugins --only-show-errors | Out-Null
+# Code for the optional order-stream services (mounted at /opt/contoso).
+az storage directory create --account-name $account --account-key $key --share-name $share --name services --only-show-errors | Out-Null
 
 az storage file upload-batch --account-name $account --account-key $key `
   --destination "$share/dags" --source "$root/airflow/dags" --pattern "*.py" --only-show-errors | Out-Null
 
 az storage file upload-batch --account-name $account --account-key $key `
   --destination "$share/plugins" --source "$root/airflow/plugins" --pattern "*.py" --only-show-errors | Out-Null
+
+az storage file upload-batch --account-name $account --account-key $key `
+  --destination "$share/services" --source "$root/services" --pattern "*.py" --only-show-errors | Out-Null
 
 Write-Host "Done. Airflow will pick up the DAGs within a minute."
 if ($webUrl) { Write-Host "Web UI: $webUrl" }

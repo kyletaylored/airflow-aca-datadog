@@ -27,6 +27,10 @@ az storage directory create \
 az storage directory create \
   --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
   --share-name "$FILE_SHARE_NAME" --name plugins --only-show-errors 1>/dev/null || true
+# Code for the optional order-stream services (mounted at /opt/contoso).
+az storage directory create \
+  --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
+  --share-name "$FILE_SHARE_NAME" --name services --only-show-errors 1>/dev/null || true
 
 az storage file upload-batch \
   --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
@@ -38,6 +42,12 @@ az storage file upload-batch \
   --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
   --destination "$FILE_SHARE_NAME/plugins" \
   --source "$ROOT/airflow/plugins" \
+  --pattern "*.py" --only-show-errors 1>/dev/null
+
+az storage file upload-batch \
+  --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
+  --destination "$FILE_SHARE_NAME/services" \
+  --source "$ROOT/services" \
   --pattern "*.py" --only-show-errors 1>/dev/null
 
 echo "Done. Airflow will pick up the DAGs within a minute."

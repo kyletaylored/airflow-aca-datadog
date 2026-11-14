@@ -21,6 +21,13 @@ tables. Trigger with chaos params to break something on purpose:
     skip_load       no new orders (freshness monitor)
     schema_drift    raw.orders gains a promo_code column (schema change)
 
+Where the orders come from:
+    stream mode    when the order stream is deployed (``CONTOSO_LANDING_ACCOUNT``
+                   set), ingest_orders loads the batches the order processor landed
+                   in ADLS, so lineage starts at the storefront and Event Hubs.
+    generate mode  otherwise, ingest_orders makes up the interval's orders in SQL.
+The chaos switches work the same in both modes.
+
 Only defined when the data pipeline is deployed (``AIRFLOW_CONN_CONTOSO_DW`` set).
 Run ``contoso_dw_bootstrap`` first; the deploy does that automatically (``@once``).
 """
@@ -38,6 +45,8 @@ except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stac
 from contoso_dw import sql as dw
 
 CONN_ID = "contoso_dw"
+LANDING_ACCOUNT = os.environ.get("CONTOSO_LANDING_ACCOUNT")
+LANDING_CONTAINER = os.environ.get("CONTOSO_LANDING_CONTAINER", "landing")
 
 
 def _chaos(title: str, description: str) -> Param:
@@ -82,7 +91,17 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
         def sql_task(task_id: str, statements: list[str]) -> SQLExecuteQueryOperator:
             return SQLExecuteQueryOperator(task_id=task_id, conn_id=CONN_ID, sql=statements)
 
-        ingest_orders = sql_task("ingest_orders", dw.INGEST_ORDERS)
+        if LANDING_ACCOUNT:
+            from contoso_dw.landing_operator import LoadLandedOrdersOperator
+
+            ingest_orders = LoadLandedOrdersOperator(
+                task_id="ingest_orders",
+                conn_id=CONN_ID,
+                landing_account=LANDING_ACCOUNT,
+                landing_container=LANDING_CONTAINER,
+            )
+        else:
+            ingest_orders = sql_task("ingest_orders", dw.INGEST_ORDERS)
         ingest_customers = sql_task("ingest_customers", dw.INGEST_CUSTOMERS)
         staging_orders = sql_task("staging_orders", dw.STAGING_ORDERS)
         staging_customers = sql_task("staging_customers", dw.STAGING_CUSTOMERS)

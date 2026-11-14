@@ -166,14 +166,12 @@ INGEST_CUSTOMERS = [upsert_customers("0.02")]
 #   volume_drop    -> 5% of the normal volume
 #   skip_load      -> no orders at all
 #   schema_drift   -> raw.orders gains a promo_code column (dropped again when off)
+ADD_PROMO_CODE = "ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text"
+DROP_PROMO_CODE = "ALTER TABLE raw.orders DROP COLUMN IF EXISTS promo_code"
+PURGE_OLD_ORDERS = "DELETE FROM raw.orders WHERE ordered_at < now() - interval '14 days'"
+
 INGEST_ORDERS = [
-    """
-    {%- if params.schema_drift %}
-    ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text
-    {%- else %}
-    ALTER TABLE raw.orders DROP COLUMN IF EXISTS promo_code
-    {%- endif %}
-    """,
+    "{% if params.schema_drift %}" + ADD_PROMO_CODE + "{% else %}" + DROP_PROMO_CODE + "{% endif %}",
     f"""
     INSERT INTO raw.orders
         (order_id, customer_id, store, channel, items, amount_cents, currency, ordered_at, _batch_id)
@@ -200,8 +198,27 @@ INGEST_ORDERS = [
     ) AS batch
     ON CONFLICT (order_id) DO NOTHING
     """,
-    "DELETE FROM raw.orders WHERE ordered_at < now() - interval '14 days'",
+    PURGE_OLD_ORDERS,
 ]
+
+# --- contoso_orders: ingest from the landing zone (stream mode) ----------------
+
+# Which landing blobs are already in raw.orders. Created by the load task itself,
+# so deployments bootstrapped before stream mode existed pick it up too.
+CREATE_INGESTED_FILES = """
+CREATE TABLE IF NOT EXISTS raw._ingested_files (
+    name        text PRIMARY KEY,
+    orders      integer NOT NULL,
+    ingested_at timestamptz NOT NULL DEFAULT now()
+)
+"""
+
+INSERT_ORDER = """
+INSERT INTO raw.orders
+    (order_id, customer_id, store, channel, items, amount_cents, currency, ordered_at, _batch_id)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (order_id) DO NOTHING
+"""
 
 # --- contoso_orders: staging ---------------------------------------------------
 
