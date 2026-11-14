@@ -435,7 +435,9 @@ stored in GitHub. It reuses the resource group and azd environment from your fir
    ```
 
    Also copy any other setting you changed from its default, such as
-   `TELEMETRY_SIGNALS`, `NAME_PREFIX` or `POSTGRES_LOCATION`.
+   `TELEMETRY_SIGNALS`, `NAME_PREFIX`, `POSTGRES_LOCATION` or `POSTGRES_SKU_NAME`. A
+   setting left out here falls back to its default on the next deploy, so a server
+   you scaled up by hand would be scaled back down.
 
 3. **Optional: require approval.** In the repo's Settings → Environments → `azure`,
    add yourself as a required reviewer. Each deploy then waits for you to approve it.
