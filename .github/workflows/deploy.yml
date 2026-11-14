@@ -80,8 +80,15 @@ jobs:
           echo "target=$target" >> "$GITHUB_OUTPUT"
           echo "Deploy target: \`$target\`" >> "$GITHUB_STEP_SUMMARY"
 
-  deploy:
+  # The CI checks again, against the merged commit. Deploy waits for them and
+  # doesn't run if they fail.
+  ci:
     needs: plan
+    if: needs.plan.outputs.target == 'infra' || needs.plan.outputs.target == 'dags'
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: [plan, ci]
     if: needs.plan.outputs.target == 'infra' || needs.plan.outputs.target == 'dags'
     runs-on: ubuntu-24.04
     # Holds the Azure identity, the azd settings and the secrets. Add required
