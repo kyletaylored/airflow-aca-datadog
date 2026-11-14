@@ -331,7 +331,7 @@ not performed.
 | 2 | Rajesh | A schema change renames `raw.orders.amount_cents` to `amount_minor`, without updating the staging SQL. | `breaking_schema` (new) | The `staging_orders` task fails, and the Job monitor alerts. Column-level lineage shows every downstream column that depends on the renamed one. |
 | 3 | Emily | A batch never gets loaded, and later the volume drops. | `skip_load`, `volume_drop` (exist) | Freshness on `staging.orders` and `marts.daily_store_sales` alerts. Source to Target shows `staging.orders` falling behind `raw.orders`. DJM shows which run skipped the load. |
 | 4 | Priya | A refund-handling change makes some orders count as negative revenue. | `refund_bug` (new) | The negative-revenue threshold monitor alerts, and the anomaly monitor on total daily revenue flags the dip. |
-| 5 | John | Each upstream issue reaches his dashboards. | none: a consequence of 1 to 4 | Metabase dashboards appear in lineage below the marts, so he can see which dashboards show wrong or stale numbers, and whose issue it is. |
+| 5 | John | Each upstream issue reaches his reports. | none: a consequence of 1 to 4 | The marts tables his reports read show as affected in lineage, so he can see which numbers are wrong or stale, and whose issue it is. With a Metabase license, his dashboards would appear in lineage below the marts (see 3e). |
 
 **Bits AI in each scenario.** Datadog's Bits AI docs don't describe Data Observability
 use yet, so treat these steps as to-verify:
@@ -370,18 +370,41 @@ All of these depend on the open issue in 1d: monitors need to run more than once
 - **Datadog:** the Metabase integration, which uses the Metabase URL and an API key.
   It adds Metabase logs, and lineage from the marts tables to cards and dashboards.
 
-**Spike first:** Datadog's docs say Metabase lineage needs "a supported data warehouse
-destination". Check that Postgres through the Agent qualifies, before building the
-seed script.
+**Spike result (2026-11-14): on hold until there's a Pro or Enterprise license.**
+Open-source Metabase (`metabase/metabase:v0.65.4.4`) ran on ACA, built by hand, not in
+Bicep. The Datadog tile accepted the API key: its `GET /api/database` calls returned
+200. It then stopped with "Cannot access 'Internal Metabase Database'… ensure you have
+Metabase Pro or Enterprise plan." That database is Metabase's Usage analytics source,
+which only Pro and Enterprise create, so no Postgres grant can supply it. No Metabase
+entities reached the catalog. Self-hosted Pro uses the same image plus a license token
+in `MB_PREMIUM_EMBEDDING_TOKEN`.
+
+What the spike needed on Azure Postgres, for whenever this goes into Bicep:
+- **`public` schema:** in the `metabase` database it belongs to `azure_pg_admin`, so
+  the `metabase` role has to own it, not just the database.
+- **`azure.extensions`:** must allow `CITEXT`, and `citext` has to be created in the
+  `metabase` database.
+- **Connection pools:** Metabase's default pools took 13 of the 35 connections B1ms
+  allows ordinary roles. The pools are capped with
+  `MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE=4` and
+  `MB_JDBC_DATA_WAREHOUSE_MAX_CONNECTION_POOL_SIZE=3`, and the server is now
+  `Standard_B2s`.
+- **`max_connections`:** set by hand to 200. Azure kept the B1ms value of 50 after the
+  SKU change.
+- **`JAVA_OPTS=-Xmx1536m`:** without it, the JVM saw only about 500 MB of the 2 GiB
+  container.
+
+**Until then, John's scenario changes.** He owns the `marts` tables and the reports on
+them, and his view is downstream impact on the marts in lineage and monitors. There
+are no dashboard nodes.
 
 ### 3f. Order of work
 
-1. The Metabase spike: deploy Metabase by hand, connect the integration, and see
-   whether the dashboards appear in lineage.
+1. ~~The Metabase spike~~: done; on hold, see 3e.
 2. The two new chaos switches, `breaking_schema` and `refund_bug`, with tests.
 3. The new monitors: the Job monitor, the revenue anomaly, and Source to Target, once
    the org has access.
-4. Metabase in Bicep, and the seed script.
+4. Metabase in Bicep and the seed script, once there's a license.
 5. The narrative, the team and the scenarios in `docs/data-pipeline-demo.md`, plus a
    presenter run sheet: which switch to trigger, how long to wait, and where to click.
 
