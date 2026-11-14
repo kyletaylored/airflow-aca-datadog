@@ -78,6 +78,13 @@ param datadogPostgresPassword string = ''
 @description('Datadog Agent image for the data pipeline. Data Observability for PostgreSQL needs 7.81.0 or later.')
 param datadogAgentImage string = 'datadog/agent:7.85.4'
 
+@description('Add the order stream to the data pipeline: Event Hubs (Kafka) between a storefront and an order processor that lands batches in ADLS for contoso_orders to load. Needs enableDataPipeline. Adds about $40-50 a month (Event Hubs Standard and two small apps).')
+@allowed([ 'true', 'false' ])
+param enableOrderStream string = 'false'
+
+@description('Orders per minute the storefront produces.')
+param storefrontOrdersPerMinute string = '20'
+
 var suffix = uniqueString(subscription().subscriptionId, resourceGroup().id)
 // Resource tags = the resource group's tags (so ARM updates never strip tags a
 // tag-inheritance policy added) + any RESOURCE_TAGS pairs.
@@ -113,6 +120,17 @@ var ddAgentName = '${namePrefix}-dd-agent'
 // Airflow connection "contoso_dw". The host must stay the server FQDN: OpenLineage
 // names the tables postgres://<host>:5432, and the Agent's check uses the same host,
 // so Data Jobs Monitoring and the Data Observability catalog see one set of tables.
+// Order stream (phase 2 of the pipeline): storefront -> Event Hubs -> processor -> ADLS.
+var enableStream = enablePipeline && enableOrderStream == 'true'
+var eventHubsName = '${namePrefix}-eh-${suffix}'
+var ordersTopic = 'orders'
+var kafkaBootstrap = '${eventHubsName}.servicebus.windows.net:9093'
+// A small ADLS Gen2 account (hierarchical namespace), so abfss:// names in lineage
+// describe it accurately. The Airflow file share's account stays as it is.
+var landingAccountName = toLower('stdl${take(suffix, 20)}')
+var landingContainerName = 'landing'
+// Packages the two services install at startup on python:3.12-slim.
+var streamPackages = 'ddtrace==4.16.1 confluent-kafka==2.16.1 azure-storage-blob==12.31.1'
 var dwConn = 'postgresql://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${dwDatabaseName}?sslmode=require'
 
 // --- Observability -----------------------------------------------------------
@@ -309,10 +327,15 @@ var airflowEnv = [
 ]
 
 // contoso_dw_bootstrap and contoso_orders exist only when these are set.
-var pipelineEnvVars = enablePipeline ? [
+var pipelineEnvVars = concat(enablePipeline ? [
   { name: 'AIRFLOW_CONN_CONTOSO_DW', secretRef: 'contoso-dw-conn' }
   { name: 'AIRFLOW_VAR_DATADOG_POSTGRES_PASSWORD', secretRef: 'dd-postgres-password' }
-] : []
+] : [], enableStream ? [
+  // contoso_orders loads the processor's batches from here instead of generating orders.
+  { name: 'CONTOSO_LANDING_ACCOUNT', value: landingAccountName }
+  { name: 'CONTOSO_LANDING_CONTAINER', value: landingContainerName }
+  { name: 'CONTOSO_LANDING_CONNECTION_STRING', secretRef: 'landing-conn' }
+] : [])
 
 var datadogEnvVars = enableDatadog ? [
   // --- OpenLineage -> Datadog Data Jobs Monitoring (native "datadog" transport;
@@ -376,7 +399,8 @@ var airflowSecrets = concat(
   enablePipeline ? [
     { name: 'contoso-dw-conn', value: dwConn }
     { name: 'dd-postgres-password', value: datadogPostgresPassword }
-  ] : []
+  ] : [],
+  enableStream ? [ { name: 'landing-conn', value: landingConn } ] : []
 )
 
 var sharedVolumes = [
@@ -643,6 +667,172 @@ exec /bin/entrypoint.sh
   dependsOn: [ pgDwDatabase ]
 }
 
+// --- Order stream for the demo data pipeline (optional) -------------------------
+//
+// contoso-storefront produces orders to Event Hubs' Kafka endpoint; order-processor
+// consumes them and lands newline-delimited JSON batches in ADLS, which
+// contoso_orders loads into raw.orders. Both services run dd-trace with Data
+// Streams Monitoring (it needs a Datadog SDK; OTel can't produce DSM pathways) and
+// send traces to the Agent above. Their code comes from the file share.
+
+resource eventHubs 'Microsoft.EventHub/namespaces@2024-01-01' = if (enableStream) {
+  name: eventHubsName
+  location: location
+  tags: tags
+  // Basic has no Kafka endpoint.
+  sku: { name: 'Standard', tier: 'Standard', capacity: 1 }
+  properties: {
+    minimumTlsVersion: '1.2'
+  }
+}
+
+resource ordersHub 'Microsoft.EventHub/namespaces/eventhubs@2024-01-01' = if (enableStream) {
+  parent: eventHubs
+  name: ordersTopic
+  properties: {
+    partitionCount: 2
+    messageRetentionInDays: 1
+  }
+}
+
+resource ordersSend 'Microsoft.EventHub/namespaces/eventhubs/authorizationRules@2024-01-01' = if (enableStream) {
+  parent: ordersHub
+  name: 'storefront-send'
+  properties: { rights: [ 'Send' ] }
+}
+
+resource ordersListen 'Microsoft.EventHub/namespaces/eventhubs/authorizationRules@2024-01-01' = if (enableStream) {
+  parent: ordersHub
+  name: 'processor-listen'
+  properties: { rights: [ 'Listen' ] }
+}
+
+resource landingStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = if (enableStream) {
+  name: landingAccountName
+  location: location
+  tags: tags
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    isHnsEnabled: true
+    minimumTlsVersion: 'TLS1_2'
+    allowBlobPublicAccess: false
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource landingBlobs 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = if (enableStream) {
+  parent: landingStorage
+  name: 'default'
+}
+
+resource landingContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (enableStream) {
+  parent: landingBlobs
+  name: landingContainerName
+}
+
+var landingConn = 'DefaultEndpointsProtocol=https;AccountName=${landingAccountName};AccountKey=${landingStorage!.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+
+// What both services share: dd-trace with DSM, pointed at the Agent's intake.
+func streamServiceEnv(service string, ddEnv string, agentUrl string) array => [
+  { name: 'PYTHONUNBUFFERED', value: '1' }
+  { name: 'PYTHONPATH', value: '/opt/contoso/services' }
+  { name: 'DD_SERVICE', value: service }
+  { name: 'DD_ENV', value: ddEnv }
+  { name: 'DD_TRACE_AGENT_URL', value: agentUrl }
+  { name: 'DD_DATA_STREAMS_ENABLED', value: 'true' }
+  { name: 'DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED', value: 'true' }
+  // No DogStatsD here: the Agent is only reachable over HTTP ingress.
+  { name: 'DD_RUNTIME_METRICS_ENABLED', value: 'false' }
+]
+
+var ddAgentUrl = 'http://${ddAgentName}'
+var streamVolumeMounts = [
+  { volumeName: 'airflow-shared', mountPath: '/opt/contoso' }
+]
+
+resource storefront 'Microsoft.App/containerApps@2024-03-01' = if (enableStream) {
+  name: '${namePrefix}-storefront'
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      secrets: [
+        { name: 'kafka-conn', value: ordersSend!.listKeys().primaryConnectionString }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'storefront'
+          image: 'python:3.12-slim'
+          command: [ '/bin/sh', '-c' ]
+          args: [ 'pip install --no-cache-dir --disable-pip-version-check -q ${streamPackages} && exec ddtrace-run python /opt/contoso/services/storefront.py' ]
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: concat(streamServiceEnv('contoso-storefront', datadogEnv, ddAgentUrl), [
+            { name: 'KAFKA_BOOTSTRAP_SERVERS', value: kafkaBootstrap }
+            { name: 'KAFKA_CONNECTION_STRING', secretRef: 'kafka-conn' }
+            { name: 'KAFKA_TOPIC', value: ordersTopic }
+            { name: 'ORDERS_PER_MINUTE', value: storefrontOrdersPerMinute }
+          ])
+          volumeMounts: streamVolumeMounts
+        }
+      ]
+      volumes: sharedVolumes
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ envStorage, ddAgent ]
+}
+
+resource orderProcessor 'Microsoft.App/containerApps@2024-03-01' = if (enableStream) {
+  name: '${namePrefix}-order-processor'
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      secrets: [
+        { name: 'kafka-conn', value: ordersListen!.listKeys().primaryConnectionString }
+        { name: 'landing-conn', value: landingConn }
+        { name: 'dd-api-key', value: datadogApiKey }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'order-processor'
+          image: 'python:3.12-slim'
+          command: [ '/bin/sh', '-c' ]
+          args: [ 'pip install --no-cache-dir --disable-pip-version-check -q ${streamPackages} && exec ddtrace-run python /opt/contoso/services/order_processor.py' ]
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: concat(streamServiceEnv('order-processor', datadogEnv, ddAgentUrl), [
+            { name: 'KAFKA_BOOTSTRAP_SERVERS', value: kafkaBootstrap }
+            { name: 'KAFKA_CONNECTION_STRING', secretRef: 'kafka-conn' }
+            { name: 'KAFKA_TOPIC', value: ordersTopic }
+            { name: 'KAFKA_GROUP_ID', value: 'order-processor' }
+            { name: 'LANDING_CONNECTION_STRING', secretRef: 'landing-conn' }
+            { name: 'LANDING_ACCOUNT', value: landingAccountName }
+            { name: 'LANDING_CONTAINER', value: landingContainerName }
+            { name: 'FLUSH_SECONDS', value: '300' }
+            // The processor reports each landed batch to Data Observability itself.
+            { name: 'DD_API_KEY', secretRef: 'dd-api-key' }
+            { name: 'DD_SITE', value: datadogSite }
+            { name: 'OPENLINEAGE_NAMESPACE', value: datadogEnv }
+          ])
+          volumeMounts: streamVolumeMounts
+        }
+      ]
+      volumes: sharedVolumes
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ envStorage, ddAgent, landingContainer ]
+}
+
 output airflowWebUrl string = 'https://${airflowWeb.properties.configuration.ingress.fqdn}'
 output sampleJobName string = sampleJob.name
 output managedEnvironmentName string = managedEnvironment.name
@@ -653,6 +843,7 @@ output airflowIdentityPrincipalId string = identity.properties.principalId
 output jobsRoleAssigned bool = assignJobsRole == 'true'
 output datadogEnabled bool = enableDatadog
 output dataPipelineEnabled bool = enablePipeline
+output orderStreamEnabled bool = enableStream
 // If assignJobsRole=false, an admin (Owner/User Access Administrator) grants the
 // role afterward by running this exact command:
 output grantRoleCommand string = 'az role assignment create --assignee-object-id ${identity.properties.principalId} --assignee-principal-type ServicePrincipal --role Contributor --scope ${resourceGroup().id}'

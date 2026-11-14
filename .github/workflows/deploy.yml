@@ -6,6 +6,7 @@ name: Deploy
 #
 #   infra/**, azure.yaml          -> azd provision (Bicep, then the DAG upload hook)
 #   airflow/dags, airflow/plugins -> DAG and plugin upload only
+#   services/**                   -> the same upload, then restart the stream services
 on:
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - "airflow/dags/**"
       - "airflow/plugins/**"
       - "scripts/upload-dags.sh"
+      - "services/**"
   workflow_dispatch:
     inputs:
       target:
@@ -36,6 +38,7 @@ jobs:
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest is moving to 26.04
     outputs:
       target: ${{ steps.plan.outputs.target }}
+      services_changed: ${{ steps.plan.outputs.services_changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,9 +65,12 @@ jobs:
             target=infra
           else
             changed="$(git diff --name-only "$BEFORE" "$GITHUB_SHA")"
+            if printf '%s\n' "$changed" | grep -qE '^services/'; then
+              echo "services_changed=true" >> "$GITHUB_OUTPUT"
+            fi
             if printf '%s\n' "$changed" | grep -qE '^(infra/|azure\.yaml$)'; then
               target=infra
-            elif printf '%s\n' "$changed" | grep -qE '^(airflow/(dags|plugins)/|scripts/upload-dags\.sh$)'; then
+            elif printf '%s\n' "$changed" | grep -qE '^(airflow/(dags|plugins)/|scripts/upload-dags\.sh$|services/)'; then
               target=dags
             else
               target=none
@@ -121,6 +127,7 @@ jobs:
           # Optional demo data pipeline (docs/data-pipeline-demo.md).
           DD_POSTGRES_PASSWORD: ${{ secrets.DD_POSTGRES_PASSWORD }}
           ENABLE_DATA_PIPELINE: ${{ vars.ENABLE_DATA_PIPELINE }}
+          ENABLE_ORDER_STREAM: ${{ vars.ENABLE_ORDER_STREAM }}
           # The pipeline identity can't assign roles; the role from the first
           # deploy stays in place.
           ASSIGN_JOBS_ROLE: ${{ vars.ASSIGN_JOBS_ROLE || 'false' }}
@@ -150,7 +157,7 @@ jobs:
           fi
           # An unset GitHub variable arrives as an empty string. Drop those so
           # the parameter file's ${NAME=default} values apply.
-          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE ENABLE_DATA_PIPELINE DD_POSTGRES_PASSWORD; do
+          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE ENABLE_DATA_PIPELINE DD_POSTGRES_PASSWORD ENABLE_ORDER_STREAM; do
             eval "value=\${$name}"
             [ -n "$value" ] || unset "$name"
           done
@@ -163,3 +170,16 @@ jobs:
             azd env refresh --no-prompt
             azd hooks run postprovision --no-prompt
           fi
+
+      - name: Restart the stream services
+        # They read their code from the share only at startup.
+        if: needs.plan.outputs.services_changed == 'true' && vars.ENABLE_ORDER_STREAM == 'true'
+        env:
+          NAME_PREFIX: ${{ vars.NAME_PREFIX || 'aflo' }}
+        run: |
+          for app in storefront order-processor; do
+            name="$NAME_PREFIX-$app"
+            revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
+            az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
+            echo "Restarted $name ($revision)"
+          done

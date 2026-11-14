@@ -61,6 +61,9 @@
     },
     "datadogPostgresPassword": {
       "value": "${DD_POSTGRES_PASSWORD}"
+    },
+    "enableOrderStream": {
+      "value": "${ENABLE_ORDER_STREAM=false}"
     }
   }
 }
