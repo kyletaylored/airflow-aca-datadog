@@ -80,8 +80,11 @@ def test_staging_reads_the_column_breaking_schema_renames():
 def test_refund_bug_only_changes_the_store_sales_mart():
     normal = render(dw.MART_DAILY_STORE_SALES)[1]
     buggy = render(dw.MART_DAILY_STORE_SALES, refund_bug=True)[1]
-    assert "sum(amount_usd)," in normal and "CASE" not in normal
-    assert "sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END)," in buggy
+    assert "sum(amount_usd) AS revenue_usd," in normal and "CASE" not in normal
+    assert (
+        "sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END) AS revenue_usd,"
+        in buggy
+    )
     assert "Denver" in dw.STORES
     # staging must stay clean, or check_staging would stop the run before the marts.
     assert render(dw.STAGING_ORDERS, refund_bug=True) == render(dw.STAGING_ORDERS)
@@ -129,6 +132,51 @@ def test_openlineage_reads_the_right_tables(name, chaos):
     inputs = {f"{t.schema}.{t.name}" for t in result.in_tables}
     outputs = {f"{t.schema}.{t.name}" for t in result.out_tables}
     assert (inputs, outputs) == EXPECTED_LINEAGE[name]
+
+
+# Each table's columns as written, and a few column edges the demo relies on:
+# scenario 2 follows raw.orders.amount_cents down to the revenue columns.
+EXPECTED_COLUMNS = {
+    "STAGING_ORDERS": (
+        {"order_id", "customer_id", "store", "channel", "items", "amount_usd", "ordered_at", "order_date"},
+        {"amount_usd": "orders.amount_cents", "order_date": "orders.ordered_at"},
+    ),
+    "STAGING_CUSTOMERS": (
+        {"customer_id", "email", "region", "signed_up_at"},
+        {"email": "customers.email"},
+    ),
+    "MART_DAILY_STORE_SALES": (
+        {"sales_date", "store", "revenue_usd", "last_order_at"},
+        {"revenue_usd": "orders.amount_usd", "sales_date": "orders.order_date"},
+    ),
+    "MART_CUSTOMER_VALUE": (
+        {"customer_id", "region", "revenue_usd", "first_order_at", "last_order_at"},
+        {"revenue_usd": "orders.amount_usd"},
+    ),
+    "MART_HOURLY_ORDER_VOLUME": (
+        {"order_hour", "store"},
+        {"order_hour": "orders.ordered_at"},
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "chaos"),
+    [(name, {}) for name in sorted(EXPECTED_COLUMNS)] + [("MART_DAILY_STORE_SALES", {"refund_bug": True})],
+)
+def test_column_lineage_keeps_the_target_names(name, chaos):
+    # Columns with no input columns (count(*), now()) have no lineage, so only the
+    # ones read from a table are listed.
+    ol_sql = pytest.importorskip("openlineage_sql")
+    result = ol_sql.parse(render(getattr(dw, name), **chaos), dialect="postgres", default_schema="public")
+    lineage = {
+        c.descendant.name: {f"{x.origin.name}.{x.name}" for x in c.lineage if x.origin}
+        for c in result.column_lineage
+    }
+    columns, edges = EXPECTED_COLUMNS[name]
+    assert set(lineage) == columns
+    for column, source in edges.items():
+        assert source in lineage[column]
 
 
 # --- bootstrap ------------------------------------------------------------------

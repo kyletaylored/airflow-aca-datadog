@@ -266,10 +266,26 @@ The DSM view should also show producer and consumer latency.
 Phases 1 and 2 shipped in PRs #7 and #8, and Deploy now runs CI first (PR #9).
 What's still open against the "done when" lists:
 
-- **Monitors:** see 1d. The row-count monitor on `raw.orders` has never run, and no
-  monitor has run twice, so no chaos run has tripped a monitor yet. The chaos effects
-  themselves are verified in the tables.
-- **Affected marts:** not checked yet, for the same reason.
+- **Monitors:** see 1d. The Job monitor (29746396) is the only one that has alerted
+  on a chaos run: `breaking_schema` tripped it, and it recovered on the next run.
+  The data quality monitors still don't record values: the row-count monitor on
+  `raw.orders` has never run, and every triggered run of the others ends with "run
+  completed but produced no metric data". That needs Datadog support. The chaos
+  effects themselves are verified in the tables.
+- **Affected marts:** table-level lineage is complete. Downstream of `raw.orders` it
+  shows `staging_orders`, then `staging.orders`, then all three marts and
+  `check_staging`.
+- **Column lineage (fixed):** computed columns used to lose their names.
+  openlineage-sql names column lineage after the SELECT output, not the INSERT
+  column list, so `round(amount_cents / 100.0, 2)` came out as `_0`. Datadog then
+  showed `raw.orders.amount_cents` feeding `staging_orders` and stopped there. Every
+  staging and mart column now has an alias matching its target, and a test checks
+  the names.
+- **Leftover column:** after a `breaking_schema` run, the catalog keeps
+  `raw.orders.amount_minor` as a column, even though the next run renames it back.
+- **Bits Investigation:** starting one from the Job monitor's alert failed twice
+  with a server error (500), through the MCP server's trigger tool. Try it from the
+  monitor's alert page in the UI.
 - **Lineage gaps:** both are on Datadog's side; our events are correct.
   - `ingest_customers` reports `contoso_dw.raw.customers` as its output, but Datadog
     draws no edge for it. It's the only task with outputs and no inputs.
