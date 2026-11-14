@@ -365,13 +365,17 @@ stored in GitHub. It reuses the resource group and azd environment from your fir
    REPO=<owner>/<repo>
    RG=$(azd env get-value AZURE_RESOURCE_GROUP)
    SUB=$(azd env get-value AZURE_SUBSCRIPTION_ID)
+   # The subject GitHub puts in the token. Newer repos use an immutable,
+   # ID-based form (repo:owner@123/repo@456), so read it rather than guess.
+   PREFIX=$(gh api "repos/${REPO}/actions/oidc/customization/sub" -q '.sub_claim_prefix // empty')
+   PREFIX=${PREFIX:-repo:${REPO}}
 
    APP_ID=$(az ad app create --display-name "$REPO-deploy" --query appId -o tsv)
    az ad sp create --id "$APP_ID"
    az ad app federated-credential create --id "$APP_ID" --parameters "{
      \"name\": \"github-azure-environment\",
      \"issuer\": \"https://token.actions.githubusercontent.com\",
-     \"subject\": \"repo:${REPO}:environment:azure\",
+     \"subject\": \"${PREFIX}:environment:azure\",
      \"audiences\": [\"api://AzureADTokenExchange\"]
    }"
    az role assignment create --assignee "$APP_ID" --role Contributor \
