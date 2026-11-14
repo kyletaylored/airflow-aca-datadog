@@ -20,6 +20,10 @@ tables. Trigger with chaos params to break something on purpose:
     volume_drop     5% of the usual orders (row-count monitor)
     skip_load       no new orders (freshness monitor)
     schema_drift    raw.orders gains a promo_code column (schema change)
+    breaking_schema raw.orders.amount_cents is renamed after the load, so
+                    staging_orders fails (Job monitor) and the marts go stale
+    refund_bug      the store sales mart counts every Denver order as a refund
+                    (negative-revenue and revenue anomaly monitors)
 
 Where the orders come from:
     stream mode    when the order stream is deployed (``CONTOSO_LANDING_ACCOUNT``
@@ -85,6 +89,13 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
             "volume_drop": _chaos("Volume drop", "Load only 5% of the usual orders."),
             "skip_load": _chaos("Skip the load", "Load no orders at all."),
             "schema_drift": _chaos("Schema drift", "Add a promo_code column to raw.orders."),
+            "breaking_schema": _chaos(
+                "Breaking schema change",
+                "Rename raw.orders.amount_cents after the load, so staging_orders fails.",
+            ),
+            "refund_bug": _chaos(
+                "Refund bug", "The store sales mart counts every Denver order as a refund."
+            ),
         },
     ) as dag:
 

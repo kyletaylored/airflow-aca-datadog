@@ -318,7 +318,7 @@ the job's code doesn't use it.
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
 | `aca_jobs_pipeline` | Parallel fan-out of N shards over the sample job. |
 | `aca_jobs_example` | A single ACA Job run with overrides. |
-| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md). |
+| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md), which also has the Contoso team's story and five demo scenarios. |
 
 The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has
 data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only

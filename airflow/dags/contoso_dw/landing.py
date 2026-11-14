@@ -9,6 +9,8 @@ had a bug:
     volume_drop     only 5% of each batch is loaded (the rest is lost)
     skip_load       nothing is loaded; the blobs wait for the next normal run
     schema_drift    raw.orders gains a promo_code column
+    breaking_schema after the load, amount_cents is renamed to amount_minor, so
+                    staging_orders fails; the next run renames it back first
 
 This is Python rather than SQL, so OpenLineage can't read the tables from a
 statement. LoadLandedOrdersOperator reports them itself instead. The names here
@@ -42,6 +44,7 @@ class Chaos:
     volume_drop: bool = False
     skip_load: bool = False
     schema_drift: bool = False
+    breaking_schema: bool = False
 
     @classmethod
     def from_params(cls, params: dict) -> Chaos:
@@ -81,6 +84,7 @@ def load_landed_orders(conn, container, chaos: Chaos, rng: random.Random | None 
     with conn.cursor() as cur:
         cur.execute(dw.CREATE_INGESTED_FILES)
         cur.execute(dw.ADD_PROMO_CODE if chaos.schema_drift else dw.DROP_PROMO_CODE)
+        cur.execute(dw.RESTORE_AMOUNT_COLUMN)
         cur.execute("SELECT name FROM raw._ingested_files")
         done = {row[0] for row in cur.fetchall()}
         # On an ADLS Gen2 account the listing also returns the directories
@@ -106,5 +110,7 @@ def load_landed_orders(conn, container, chaos: Chaos, rng: random.Random | None 
                 stats["orders"] += len(orders)
             stats["waiting"] -= stats["blobs"]
         cur.execute(dw.PURGE_OLD_ORDERS)
+        if chaos.breaking_schema:
+            cur.execute(dw.BREAK_AMOUNT_COLUMN)
     conn.commit()
     return stats

@@ -222,6 +222,27 @@ def test_schema_drift_on_load():
     assert (dw.ADD_PROMO_CODE, None) in conn.cur.statements
 
 
+def test_load_restores_the_amount_column_first():
+    conn = _Conn()
+    landing.load_landed_orders(conn, _Container(_blobs(count=1)), landing.Chaos(), random.Random(0))
+    statements = [s for s, _ in conn.cur.statements]
+    assert statements.index(dw.RESTORE_AMOUNT_COLUMN) < statements.index(
+        "SELECT name FROM raw._ingested_files"
+    )
+    assert dw.BREAK_AMOUNT_COLUMN not in statements
+
+
+def test_breaking_schema_renames_the_column_after_the_load():
+    conn = _Conn()
+    landing.load_landed_orders(
+        conn, _Container(_blobs(count=1)), landing.Chaos(breaking_schema=True), random.Random(0)
+    )
+    statements = [s for s, _ in conn.cur.statements]
+    assert statements[-1] == dw.BREAK_AMOUNT_COLUMN
+    assert len(conn.cur.rows) == 50
+    assert conn.committed
+
+
 def test_chaos_reads_dag_params():
     assert landing.Chaos.from_params({"null_customers": True, "interval_minutes": 15}) == landing.Chaos(
         null_customers=True

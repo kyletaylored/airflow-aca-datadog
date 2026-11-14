@@ -26,6 +26,8 @@ PARAMS = {
     "volume_drop": False,
     "skip_load": False,
     "schema_drift": False,
+    "breaking_schema": False,
+    "refund_bug": False,
 }
 
 
@@ -36,8 +38,10 @@ def render(statements: list[str], **chaos) -> list[str]:
 
 
 def test_ingest_without_chaos():
-    alter, insert, _cleanup = render(dw.INGEST_ORDERS)
+    alter, restore, insert, cleanup = render(dw.INGEST_ORDERS)
     assert "DROP COLUMN IF EXISTS promo_code" in alter
+    assert "RENAME COLUMN amount_minor TO amount_cents" in restore
+    assert cleanup == dw.PURGE_OLD_ORDERS
     assert "WHEN false AND random() < 0.3" in insert
     assert "(200 + floor(random() * 200))::int" in insert
     assert "interval '15 minutes'" in insert
@@ -53,13 +57,34 @@ def test_ingest_without_chaos():
     ],
 )
 def test_chaos_switches_change_the_load(chaos, expected):
-    insert = render(dw.INGEST_ORDERS, **chaos)[1]
+    insert = render(dw.INGEST_ORDERS, **chaos)[2]
     assert expected in insert
 
 
 def test_schema_drift_adds_the_column():
     alter = render(dw.INGEST_ORDERS, schema_drift=True)[0]
     assert alter.strip() == "ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text"
+
+
+def test_breaking_schema_renames_the_column_after_the_load():
+    cleanup = render(dw.INGEST_ORDERS, breaking_schema=True)[-1]
+    assert cleanup == dw.PURGE_OLD_ORDERS + ";\n" + dw.BREAK_AMOUNT_COLUMN
+
+
+def test_staging_reads_the_column_breaking_schema_renames():
+    # The rename only breaks staging_orders if staging still reads amount_cents.
+    assert "amount_cents" in render(dw.STAGING_ORDERS)[1]
+    assert "amount_cents" in dw.BREAK_AMOUNT_COLUMN
+
+
+def test_refund_bug_only_changes_the_store_sales_mart():
+    normal = render(dw.MART_DAILY_STORE_SALES)[1]
+    buggy = render(dw.MART_DAILY_STORE_SALES, refund_bug=True)[1]
+    assert "sum(amount_usd)," in normal and "CASE" not in normal
+    assert "sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END)," in buggy
+    assert "Denver" in dw.STORES
+    # staging must stay clean, or check_staging would stop the run before the marts.
+    assert render(dw.STAGING_ORDERS, refund_bug=True) == render(dw.STAGING_ORDERS)
 
 
 def test_datadog_grants_cover_every_schema():
@@ -89,11 +114,18 @@ EXPECTED_LINEAGE = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(EXPECTED_LINEAGE))
-def test_openlineage_reads_the_right_tables(name):
+@pytest.mark.parametrize(
+    ("name", "chaos"),
+    [(name, {}) for name in sorted(EXPECTED_LINEAGE)]
+    + [("INGEST_ORDERS", {"breaking_schema": True}), ("MART_DAILY_STORE_SALES", {"refund_bug": True})],
+)
+def test_openlineage_reads_the_right_tables(name, chaos):
     ol_sql = pytest.importorskip("openlineage_sql")
-    result = ol_sql.parse(render(getattr(dw, name)), dialect="postgres", default_schema="public")
-    assert not result.errors
+    result = ol_sql.parse(render(getattr(dw, name), **chaos), dialect="postgres", default_schema="public")
+    # openlineage-sql can't parse PL/pgSQL DO blocks (INGEST_ORDERS restores the
+    # amount column with one). The provider still reports the other statements'
+    # tables, so only those errors are allowed.
+    assert not [e for e in result.errors if not e.origin_statement.lstrip().startswith("DO $$")]
     inputs = {f"{t.schema}.{t.name}" for t in result.in_tables}
     outputs = {f"{t.schema}.{t.name}" for t in result.out_tables}
     assert (inputs, outputs) == EXPECTED_LINEAGE[name]
