@@ -318,7 +318,7 @@ the job's code doesn't use it.
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
 | `aca_jobs_pipeline` | Parallel fan-out of N shards over the sample job. |
 | `aca_jobs_example` | A single ACA Job run with overrides. |
-| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. See [the data pipeline demo](docs/data-pipeline-demo.md). |
+| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md). |
 
 The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has
 data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only
@@ -367,6 +367,7 @@ which needs Owner or User Access Administrator. With only Contributor, set
 | `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` |
 | `ASSIGN_JOBS_ROLE` | `true` | `false` skips the managed identity's role assignment |
 | `ENABLE_DATA_PIPELINE`, `DD_POSTGRES_PASSWORD` | `false`, _(empty)_ | The optional [data pipeline demo](docs/data-pipeline-demo.md) and the password for its Agent's Postgres role |
+| `ENABLE_ORDER_STREAM` | `false` | The pipeline's optional order stream: a storefront, Event Hubs and an order processor (needs `ENABLE_DATA_PIPELINE`) |
 | `AZURE_LOCATION`, `NAME_PREFIX`, `POSTGRES_*`, `AIRFLOW_ADMIN_*`, `AIRFLOW_SECRET_KEY` | | Airflow deployment settings; see [`infra/main.parameters.json`](infra/main.parameters.json) and the [source repo](https://github.com/hetvip2/airflow-hosted-on-aca#configurable-parameters) |
 
 ### Continuous deployment
@@ -492,6 +493,7 @@ Things to know:
 │     └─ otel_logging_config.py  # OTLP log handler for Airflow's logging
 ├─ infra/main.bicep         # ACA environment + managed OTel agent, Airflow apps, sample job
 ├─ docs/                    # the optional data pipeline demo
+├─ services/                # storefront and order processor for its order stream
 ├─ scripts/upload-dags.*    # postprovision: upload DAGs and plugins to the share
 └─ tests/                   # offline unit tests (no Azure, no Datadog)
 ```

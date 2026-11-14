@@ -191,6 +191,13 @@ def test_load_only_takes_new_blobs():
     assert (dw.DROP_PROMO_CODE, None) in conn.cur.statements
 
 
+def test_load_ignores_adls_directory_entries():
+    blobs = {"orders/dt=2026-11-14": b"", "orders/dt=2026-11-14/hour=05": b"", **_blobs(count=1)}
+    conn = _Conn()
+    stats = landing.load_landed_orders(conn, _Container(blobs), landing.Chaos(), random.Random(0))
+    assert stats == {"blobs": 1, "orders": 50, "waiting": 0}
+
+
 def test_skip_load_leaves_the_backlog():
     conn = _Conn()
     stats = landing.load_landed_orders(

@@ -83,7 +83,13 @@ def load_landed_orders(conn, container, chaos: Chaos, rng: random.Random | None 
         cur.execute(dw.ADD_PROMO_CODE if chaos.schema_drift else dw.DROP_PROMO_CODE)
         cur.execute("SELECT name FROM raw._ingested_files")
         done = {row[0] for row in cur.fetchall()}
-        pending = sorted(b.name for b in container.list_blobs(name_starts_with="orders/") if b.name not in done)
+        # On an ADLS Gen2 account the listing also returns the directories
+        # (orders/dt=..., size 0), so only take the batch files.
+        pending = sorted(
+            b.name
+            for b in container.list_blobs(name_starts_with="orders/")
+            if b.name.endswith(".json") and b.name not in done
+        )
         stats["waiting"] = len(pending)
         if not chaos.skip_load:
             for name in pending[:MAX_BLOBS_PER_RUN]:
