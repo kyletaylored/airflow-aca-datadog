@@ -118,6 +118,9 @@ jobs:
           AIRFLOW_ADMIN_PASSWORD: ${{ secrets.AIRFLOW_ADMIN_PASSWORD }}
           AIRFLOW_SECRET_KEY: ${{ secrets.AIRFLOW_SECRET_KEY }}
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          # Optional demo data pipeline (docs/data-pipeline-demo.md).
+          DD_POSTGRES_PASSWORD: ${{ secrets.DD_POSTGRES_PASSWORD }}
+          ENABLE_DATA_PIPELINE: ${{ vars.ENABLE_DATA_PIPELINE }}
           # The pipeline identity can't assign roles; the role from the first
           # deploy stays in place.
           ASSIGN_JOBS_ROLE: ${{ vars.ASSIGN_JOBS_ROLE || 'false' }}
@@ -139,9 +142,15 @@ jobs:
               exit 1
             fi
           done
+          # Without its password the pipeline would quietly switch off and drop its
+          # settings from the Airflow apps.
+          if [ "$ENABLE_DATA_PIPELINE" = "true" ] && [ -z "$DD_POSTGRES_PASSWORD" ]; then
+            echo "::error::ENABLE_DATA_PIPELINE is true but secret DD_POSTGRES_PASSWORD is not set on the 'azure' environment."
+            exit 1
+          fi
           # An unset GitHub variable arrives as an empty string. Drop those so
           # the parameter file's ${NAME=default} values apply.
-          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE; do
+          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE ENABLE_DATA_PIPELINE DD_POSTGRES_PASSWORD; do
             eval "value=\${$name}"
             [ -n "$value" ] || unset "$name"
           done

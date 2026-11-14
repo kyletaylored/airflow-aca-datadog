@@ -318,9 +318,11 @@ the job's code doesn't use it.
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
 | `aca_jobs_pipeline` | Parallel fan-out of N shards over the sample job. |
 | `aca_jobs_example` | A single ACA Job run with overrides. |
+| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. See [the data pipeline demo](docs/data-pipeline-demo.md). |
 
-All three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has data
-shortly after the deploy.
+The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has
+data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only
+when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
 
 ---
 
@@ -364,6 +366,7 @@ which needs Owner or User Access Administrator. With only Contributor, set
 | `DEMO_DAG_SCHEDULE` | `*/5 * * * *` | Schedule for the demo DAGs (empty string for manual-only) |
 | `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` |
 | `ASSIGN_JOBS_ROLE` | `true` | `false` skips the managed identity's role assignment |
+| `ENABLE_DATA_PIPELINE`, `DD_POSTGRES_PASSWORD` | `false`, _(empty)_ | The optional [data pipeline demo](docs/data-pipeline-demo.md) and the password for its Agent's Postgres role |
 | `AZURE_LOCATION`, `NAME_PREFIX`, `POSTGRES_*`, `AIRFLOW_ADMIN_*`, `AIRFLOW_SECRET_KEY` | | Airflow deployment settings; see [`infra/main.parameters.json`](infra/main.parameters.json) and the [source repo](https://github.com/hetvip2/airflow-hosted-on-aca#configurable-parameters) |
 
 ### Continuous deployment
@@ -481,12 +484,14 @@ Things to know:
 ```
 ├─ airflow/
 │  ├─ dags/                 # contoso_sales, aca_jobs_pipeline, aca_jobs_example
-│  │  └─ jobs/              # code the contoso_sales ACA Jobs run (reports OpenLineage)
+│  │  ├─ jobs/              # code the contoso_sales ACA Jobs run (reports OpenLineage)
+│  │  └─ contoso_dw/        # SQL for the optional contoso_orders pipeline
 │  └─ plugins/
 │     ├─ operators/         # ACA Jobs operator, ARM helpers, requests instrumentation
 │     ├─ triggers/          # async trigger for deferrable execution
 │     └─ otel_logging_config.py  # OTLP log handler for Airflow's logging
 ├─ infra/main.bicep         # ACA environment + managed OTel agent, Airflow apps, sample job
+├─ docs/                    # the optional data pipeline demo
 ├─ scripts/upload-dags.*    # postprovision: upload DAGs and plugins to the share
 └─ tests/                   # offline unit tests (no Azure, no Datadog)
 ```
