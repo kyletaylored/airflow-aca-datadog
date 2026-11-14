@@ -109,9 +109,11 @@ jobs:
             --tenant-id "$AZURE_TENANT_ID" \
             --federated-credential-provider github
 
-      - name: Provision (Bicep and DAG upload)
-        if: needs.plan.outputs.target == 'infra'
+      - name: ${{ needs.plan.outputs.target == 'infra' && 'Provision (Bicep and DAG upload)' || 'Upload DAGs and plugins' }}
         env:
+          TARGET: ${{ needs.plan.outputs.target }}
+          # Both paths need every parameter: azd env refresh resolves the whole
+          # parameter file even though it only reads the deployment's outputs.
           POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
           AIRFLOW_ADMIN_PASSWORD: ${{ secrets.AIRFLOW_ADMIN_PASSWORD }}
           AIRFLOW_SECRET_KEY: ${{ secrets.AIRFLOW_SECRET_KEY }}
@@ -143,12 +145,12 @@ jobs:
             eval "value=\${$name}"
             [ -n "$value" ] || unset "$name"
           done
-          azd provision --no-prompt
 
-      - name: Upload DAGs and plugins
-        if: needs.plan.outputs.target == 'dags'
-        run: |
-          # Load the deployment's outputs (storage account, share name) into
-          # the azd environment, then run the same hook azd provision runs.
-          azd env refresh --no-prompt
-          azd hooks run postprovision --no-prompt
+          if [ "$TARGET" = "infra" ]; then
+            azd provision --no-prompt
+          else
+            # Load the deployment's outputs (storage account, share name) into
+            # the azd environment, then run the hook azd provision runs.
+            azd env refresh --no-prompt
+            azd hooks run postprovision --no-prompt
+          fi
