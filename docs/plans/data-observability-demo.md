@@ -281,9 +281,10 @@ What's still open against the "done when" lists:
 
 ## Phase 3: the Contoso story, Metabase, and one monitor of each type
 
-**This is a draft for review.** Nothing in this section is built yet. The narrative
-and scenarios move into `docs/data-pipeline-demo.md` once the pieces they rely on
-exist, so that page never describes a switch or a dashboard that isn't there.
+**Status:** built except Metabase (see 3e) and the Job monitor, which the API
+wouldn't accept, so it gets created in the UI. The narrative, team, scenarios and
+run sheet are in `docs/data-pipeline-demo.md`. Monitors don't record values yet; see
+1d.
 
 ### 3a. Narrative
 
@@ -328,8 +329,8 @@ not performed.
 | # | Who | What breaks | Switch | What Datadog shows |
 |---|---|---|---|---|
 | 1 | Dave | A storefront release stops sending `customer_id` on some orders. | `null_customers` (exists) | Nullness anomaly on `staging.orders.customer_id` alerts. Lineage traces it upstream through the landing zone to the topic and the storefront. Downstream, `marts.customer_value` shows as affected. |
-| 2 | Rajesh | A schema change renames `raw.orders.amount_cents` to `amount_minor`, without updating the staging SQL. | `breaking_schema` (new) | The `staging_orders` task fails, and the Job monitor alerts. Column-level lineage shows every downstream column that depends on the renamed one. |
-| 3 | Emily | A batch never gets loaded, and later the volume drops. | `skip_load`, `volume_drop` (exist) | Freshness on `staging.orders` and `marts.daily_store_sales` alerts. Source to Target shows `staging.orders` falling behind `raw.orders`. DJM shows which run skipped the load. |
+| 2 | Rajesh | A schema change renames `raw.orders.amount_cents` to `amount_minor`, without updating the staging SQL. | `breaking_schema` (new) | The `staging_orders` task fails, and the Job monitor alerts. Source to Target shows `staging.orders` falling behind `raw.orders`. Column-level lineage shows every downstream column that depends on the renamed one. |
+| 3 | Emily | A batch never gets loaded, and later the volume drops. | `skip_load`, `volume_drop` (exist) | Freshness on `staging.orders` and `marts.daily_store_sales` alerts. DJM shows which run skipped the load. |
 | 4 | Priya | A refund-handling change makes some orders count as negative revenue. | `refund_bug` (new) | The negative-revenue threshold monitor alerts, and the anomaly monitor on total daily revenue flags the dip. |
 | 5 | John | Each upstream issue reaches his reports. | none: a consequence of 1 to 4 | The marts tables his reports read show as affected in lineage, so he can see which numbers are wrong or stale, and whose issue it is. With a Metabase license, his dashboards would appear in lineage below the marts (see 3e). |
 
@@ -352,8 +353,8 @@ use yet, so treat these steps as to-verify:
 |---|---|---|---|
 | Data quality, threshold | Negative revenue on `marts.daily_store_sales` (29737312). Freshness on `staging.orders` (29737311) and `marts.daily_store_sales` (29744949). | 3, 4 | These exist already. |
 | Data quality, anomaly | Nullness on `staging.orders.customer_id` (29737310). New: daily revenue sum on `marts.daily_store_sales.revenue_usd`. | 1, 4 | Anomaly detection needs some history before it alerts. |
-| Job | Failed runs of the `contoso_orders` DAG | 2 | New. The `breaking_schema` switch makes the failure happen. |
-| Source to target | Row count, `raw.orders` against `staging.orders` | 3 | New. In Preview, so the org needs access. Both tables are in the same database, which the docs support. |
+| Job | Failed runs of the `contoso_orders` DAG | 2 | To create in the UI. The API takes `data-jobs alert` with a `run_query` variable (`job_type: airflow.dag`), but rejected every query string we tried. |
+| Source to target | Custom SQL counts, `raw.orders` (non-test) against `staging.orders`, alert below -50 | 2 | Created, 29745880. In Preview. |
 | Schema change | Skipped | none | Only Snowflake, BigQuery, Databricks and Redshift are supported, not Postgres. |
 
 All of these depend on the open issue in 1d: monitors need to run more than once.
@@ -401,12 +402,11 @@ are no dashboard nodes.
 ### 3f. Order of work
 
 1. ~~The Metabase spike~~: done; on hold, see 3e.
-2. The two new chaos switches, `breaking_schema` and `refund_bug`, with tests.
-3. The new monitors: the Job monitor, the revenue anomaly, and Source to Target, once
-   the org has access.
+2. ~~The two new chaos switches~~: done.
+3. The new monitors: revenue anomaly (29745883) and Source to Target (29745880)
+   created; the Job monitor is still to create in the UI.
 4. Metabase in Bicep and the seed script, once there's a license.
-5. The narrative, the team and the scenarios in `docs/data-pipeline-demo.md`, plus a
-   presenter run sheet: which switch to trigger, how long to wait, and where to click.
+5. ~~The narrative, team, scenarios and run sheet~~: done.
 
 ## Rough monthly cost added (centralus, list prices, always-on)
 

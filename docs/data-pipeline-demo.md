@@ -5,6 +5,34 @@ setup. It gives the OpenLineage and OpenTelemetry instrumentation a realistic
 workload: orders flow from a storefront, through Event Hubs and a landing zone, into
 a Postgres medallion that Airflow builds.
 
+## The story
+
+Contoso Outfitters is a global e-commerce retailer of outdoor and travel gear. It
+sells through its website, its mobile app and its own stores. This demo follows its
+North American business: seven stores and about 2,000 customers.
+
+Every order the storefront takes goes onto Azure Event Hubs. An order processor lands
+the orders in batches in Azure Data Lake Storage. Apache Airflow, running on Azure
+Container Apps, loads them every 15 minutes into a Postgres warehouse: `raw`, then
+cleaned `staging` tables, then `marts` tables for reporting. Datadog watches each
+step: APM and Data Streams Monitoring for the services, Data Jobs Monitoring for
+Airflow, and Data Observability for the tables and their lineage.
+
+Five people run this pipeline:
+
+| Person | Role | Owns |
+|---|---|---|
+| Dave | Application engineer | The storefront and the order processor, up to the files in the landing zone |
+| Rajesh | Data architect | The warehouse design: the schemas and tables, and what each column means |
+| Emily | Data engineer | The Airflow pipelines that move data from the landing zone through `raw` and `staging` |
+| Priya | Analytics engineer | The `marts` transformations: the SQL that turns clean orders into business metrics |
+| John | BI lead | The reports built on the `marts` tables, and the people who read them |
+
+Each of them has a scenario, in [Demo scenarios](#demo-scenarios): something breaks in
+their part of the pipeline, Datadog alerts, and they find the cause.
+
+## What Datadog shows
+
 - **Data Jobs Monitoring** shows the DAG with table-level lineage.
 - **Data Observability** shows the same tables in its catalog, runs data quality
   monitors on them, and joins the lineage from the Kafka topic to the marts.
@@ -199,57 +227,86 @@ Create these from a table's **Monitors** tab, under Add Monitor:
 
 | Table | Monitor | What it catches |
 |---|---|---|
-| `raw.orders` | Row count | `volume_drop` and `skip_load` |
+| `raw.orders` | Custom SQL, orders in the last hour: `SELECT count(*) AS dd_value FROM raw.orders WHERE ordered_at > now() - interval '1 hour'` (anomaly detection, or alert below 300) | `volume_drop` and `skip_load` |
 | `staging.orders` | Column metric: null ratio of `customer_id` | `null_customers` |
 | `staging.orders` | Custom SQL (freshness, in minutes): `SELECT EXTRACT(EPOCH FROM now() - max(ordered_at)) / 60 AS dd_value FROM staging.orders` | `skip_load` |
-| `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` (alert above 0) | Bad amounts that get past the checks |
+| `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` (alert above 0) | `refund_bug` |
+| `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales` (alert above 45) | `breaking_schema`, a stalled DAG |
+| `marts.daily_store_sales` | Custom SQL, anomaly detection: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date = (now() AT TIME ZONE 'UTC')::date` | `refund_bug` |
 
-Schema changes on `raw.orders` (`schema_drift`) show up on the table's **Schema
-Changes** tab.
+The scenarios use two more monitor types:
 
-**How often monitors run.** In our deploy, the first three monitors created
-(nullness, freshness and negative revenue on the `staging` and `marts` tables)
-each recorded a value within two minutes. None recorded a second value an hour
-later. Monitors created after that, including row-count monitors on `raw.orders`
-and `staging.orders` (built-in and custom SQL), still hadn't recorded anything
-nine hours later. Removing `modelTypeOverride`, and creating a new monitor with a
-plain threshold, didn't change that.
+- **Source to Target** (Preview, ask your Datadog contact for access). Compare
+  `raw.orders` with `staging.orders`, using custom SQL on each side:
+  `SELECT count(*) AS dd_value FROM raw.orders WHERE channel <> 'test'` as the source,
+  and `SELECT count(*) AS dd_value FROM staging.orders` as the target. Set Format to
+  Difference and alert below -50. It catches `breaking_schema`: raw keeps loading
+  while staging is stuck.
+- **Job:** in the UI, New Monitor → Job, for failed runs of the `contoso_orders`
+  DAG. It catches `breaking_schema`. The monitors API takes these as type
+  `data-jobs alert`, but we haven't found a query format it accepts, so create this
+  one in the UI.
 
-So don't count on a new monitor running right away, or on the default schedule
-keeping up with the pipeline. `monitor_options.crontab_override` sets the
-schedule. For a live demo, create the monitors the day before and confirm each
-one shows a value before you present.
+**Schema change monitors** and the Schema Changes page support Snowflake, BigQuery,
+Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and
+`breaking_schema` show up instead through what they break downstream.
+
+**How often monitors run.** Check this before a live demo:
+
+- **Built-in row count and freshness** come from Datadog's warehouse metadata crawl,
+  not from a query, and can't be run on demand. In our deploy, the `raw.orders` row
+  count never recorded a value, so the guide uses Custom SQL for these instead.
+- **Custom SQL and column monitors with no schedule** run once when they're created,
+  then only when triggered. Trigger one with the Data Observability API (in Preview):
+  `POST /api/v2/data-observability/monitors/{monitor_id}/run`, then
+  `GET /api/v2/data-observability/monitors/runs/{run_id}/status` for the result. Or
+  give the monitor a schedule in the UI: hourly, or a custom cron no more often than
+  every 15 minutes.
+- **Anomaly detection** needs 3 to 7 days of history, including a weekend, before it
+  alerts. Create anomaly monitors at least a week before the demo.
+
+In our deploy, the first monitors each recorded one value, at creation. Runs
+triggered later reached the Agent, whose Postgres check reported Data Observability
+query results, but every run's status was "run completed but produced no metric
+data". That needs Datadog support to investigate. Until it's resolved, create the
+monitors the day before and check that each one shows a value.
 
 You can also create them with the monitors API, as type `data-quality alert`. The
 table or column goes in `options.variables[]` by its Data Observability entity ID,
-which you can copy from the catalog. This is the row-count monitor:
+which you can copy from the catalog. This is the freshness monitor on the store sales
+mart:
 
 ```json
 {
-  "name": "[contoso_dw] raw.orders row count",
+  "name": "[contoso_dw] marts.daily_store_sales freshness",
   "type": "data-quality alert",
-  "query": "formula(\"anomalies(query1)\").last(\"2h\") > 0",
+  "query": "formula(\"query1\").last(\"2h\") > 45",
   "options": {
     "variables": [{
       "name": "query1",
       "data_source": "data_quality_metrics",
-      "filter": "search for database_table where `entity_id:<raw.orders entity id>`",
+      "filter": "search for database_table where `entity_id:<marts.daily_store_sales entity id>`",
       "group_by": ["entity_id", "table", "schema", "database"],
-      "measure": "row_count",
-      "monitor_options": {},
+      "measure": "custom",
+      "monitor_options": {
+        "custom_sql": "SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales"
+      },
       "schema_version": "0.0.1"
     }]
   }
 }
 ```
 
-For the other three, change the variable:
+For the others, change the variable and the query:
 
+- **Other Custom SQL monitors:** change `custom_sql`. For anomaly detection, use
+  `formula("anomalies(query1)").last("2h") > 0` as the query.
 - **Null ratio:** `measure: "nullness"`, with the filter on the column (`search for
-  database_column where ...`).
-- **Custom SQL:** `measure: "custom"`, with `monitor_options.custom_sql` set to the
-  query. Use a fixed threshold, such as `formula("query1").last("2h") > 45`, instead
-  of `anomalies(...)`.
+  database_column where ...`) and no `custom_sql`.
+- **Source to Target:** put a `source_to_target_config` in `monitor_options`, with
+  `diff_type` (`absolute` or `diff_percent`), `entity_type: "table"`, and a `source`
+  and `target`, each with its `entity_id`, `entity_type` and `custom_sql`. The
+  variable's filter points at the target table.
 
 ## Break it on purpose
 
@@ -272,11 +329,115 @@ subprocess.run(["airflow", "dags", "trigger", "contoso_orders",
 | `volume_drop` | Only 5% of the usual orders are generated | Only 5% of each landed batch is loaded; the rest is lost |
 | `skip_load` | No orders are generated | Nothing is loaded; the batches wait, and the next normal run catches up |
 | `schema_drift` | `raw.orders` gains a `promo_code` column. A normal run drops it again. | The same |
+| `breaking_schema` | After the load, `raw.orders.amount_cents` is renamed to `amount_minor`, so `staging_orders` fails (after its two retries, about 5 minutes) and the marts don't update. The next normal run renames the column back before it loads. | The same |
+| `refund_bug` | The store sales mart counts every Denver order as a refund, so Denver's revenue is negative in `marts.daily_store_sales`. `staging.orders` is untouched, so `check_staging` passes. | The same |
 | `interval_minutes` | The window the order timestamps fall in (default 15) | Not used |
 
 In both modes, `staging.orders` carries the nulls, and `marts.customer_value` loses
 those orders, because it joins on the customer. Scheduled runs use the defaults, so
 the data recovers on the next scheduled run, about 15 minutes later.
+
+## Demo scenarios
+
+Each scenario starts in one person's part of the pipeline, from
+[The story](#the-story). Trigger it with a param from the table above, wait for the
+alert, then follow the steps in Datadog. None of them asks you to fix anything: the
+next scheduled run recovers on its own.
+
+The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bits AI
+docs don't cover Data Observability yet, so try each one before you present it.
+
+### 1. Dave: a storefront release drops customer IDs
+
+- **Trigger:** `null_customers`.
+- **Wait:** one run, about 2 minutes.
+- **Alert:** the null-ratio monitor on `staging.orders.customer_id`.
+- **In Datadog:**
+  1. From the monitor, open the table's lineage and go upstream: `staging.orders` ←
+     `staging_orders` ← `raw.orders` ← `ingest_orders` ← the landing zone ← the
+     `orders` topic.
+  2. Downstream, `marts.customer_value` shows as affected. It's missing those
+     orders, because it joins on the customer.
+  3. In APM, open `contoso-storefront`, the service that sent the orders. In Data
+     Streams Monitoring, its pathway to `order-processor` is still healthy, so the
+     problem is the data, not the delivery.
+- **Bits AI:** run Bits Investigation from the alert, and ask it which upstream
+  service produced the null values.
+- **The fix (not performed):** Dave rolls back the storefront release.
+
+### 2. Rajesh: a schema change breaks staging
+
+- **Trigger:** `breaking_schema`.
+- **Wait:** about 5 minutes, while `staging_orders` uses up its two retries.
+- **Alerts:** the Job monitor on `contoso_orders`, then the Source to Target monitor
+  as `staging.orders` falls behind `raw.orders`, then freshness on
+  `marts.daily_store_sales`.
+- **In Datadog:**
+  1. In Data Jobs Monitoring, open the failed run of `contoso_orders`. The
+     `staging_orders` task failed with `column "amount_cents" does not exist`, and
+     the mart tasks never ran.
+  2. Column-level lineage from `raw.orders.amount_cents` shows every downstream
+     column that depends on it: what Rajesh should have checked before the rename.
+- **Bits AI:** ask Bits Chat what depends on `raw.orders.amount_cents`. Ask Bits Code
+  to propose the staging SQL change as a pull request.
+- **The fix (not performed):** Rajesh reverts the rename, or Emily updates the staging
+  SQL to read `amount_minor`.
+
+### 3. Emily: a load is skipped, then the volume drops
+
+- **Trigger:** `skip_load`, then `volume_drop` on the next run.
+- **Wait:** 45 minutes for freshness to cross its threshold. For a shorter demo,
+  pause the DAG in Airflow and come back later.
+- **Alerts:** freshness on `staging.orders` and `marts.daily_store_sales`.
+- **In Datadog:**
+  1. In Data Jobs Monitoring, the skipped run succeeded but loaded nothing. The
+     `ingest_orders` task's lineage shows zero rows written.
+  2. After `volume_drop`, the run's row counts are about 5% of normal.
+- **Bits AI:** run Bits Investigation from the freshness alert, and ask why the table
+  stopped updating.
+- **The fix (not performed):** Emily reruns the load. With the stream, the waiting
+  batches load on the next normal run.
+
+### 4. Priya: a refund change makes revenue negative
+
+- **Trigger:** `refund_bug`.
+- **Wait:** one run, about 2 minutes.
+- **Alerts:** the negative-revenue monitor on `marts.daily_store_sales`. The revenue
+  anomaly monitor also flags the dip, once it has a week of history.
+- **In Datadog:**
+  1. Lineage shows the problem starts at the mart. `staging.orders` is clean, and
+     `check_staging` passed.
+  2. In Data Jobs Monitoring, the `mart_daily_store_sales` task ran normally. The
+     bug is in the logic, not the run.
+- **Bits AI:** ask Bits Code to find the change to the mart SQL and propose a revert.
+- **The fix (not performed):** Priya reverts the refund change.
+
+### 5. John: which reports are wrong
+
+John doesn't trigger anything. Use him to close each scenario.
+
+- **In Datadog:** from any of the alerts above, open lineage downstream to the
+  `marts` tables. Those are what his reports read. A table marked affected means a
+  report showing wrong or stale numbers, and the lineage path shows whose issue it is.
+- **Bits AI:** ask Bits Chat which marts tables are affected right now, and which
+  monitor alerted first.
+
+With a BI tool connected to Datadog, his dashboards would appear in lineage below the
+marts. Datadog's Metabase integration needs Metabase Pro or Enterprise, so this demo
+doesn't include one.
+
+### Run sheet
+
+| Order | Trigger | Wait | Show |
+|---|---|---|---|
+| 1 | `null_customers` | 2 min | Nullness alert, then lineage up to the topic and down to `customer_value` |
+| 2 | `refund_bug` | 2 min | Negative-revenue alert. Staging is clean, the mart is not |
+| 3 | `breaking_schema` | 5 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
+| 4 | Next normal run | 15 min | Everything recovers. The column is renamed back and staging catches up |
+| 5 | `skip_load` | 45 min | Freshness alerts; trigger it before the session and come back to it |
+
+Run each trigger separately, because `max_active_runs` is 1: a run waits for the one
+before it.
 
 ## Optional: Storage Management for the landing zone
 
