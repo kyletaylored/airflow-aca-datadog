@@ -55,6 +55,12 @@
     },
     "datadogEnv": {
       "value": "${DD_ENV=airflow-aca}"
+    },
+    "enableDataPipeline": {
+      "value": "${ENABLE_DATA_PIPELINE=false}"
+    },
+    "datadogPostgresPassword": {
+      "value": "${DD_POSTGRES_PASSWORD}"
     }
   }
 }

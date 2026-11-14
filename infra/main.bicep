@@ -67,6 +67,17 @@ param demoDagSchedule string = '*/5 * * * *'
 @description('Comma-separated OTel signals sent to Datadog via the ACA managed agent: any of traces, metrics, logs.')
 param datadogOtelSignals string = 'traces,metrics,logs'
 
+@description('Deploy the optional demo data pipeline: a contoso_dw database on the Postgres server, the contoso_orders DAGs, and a Datadog Agent that runs Data Observability checks on it. Needs DD_API_KEY and datadogPostgresPassword.')
+@allowed([ 'true', 'false' ])
+param enableDataPipeline string = 'false'
+
+@secure()
+@description('Password for the read-only "datadog" Postgres role the Agent uses (set via: azd env set DD_POSTGRES_PASSWORD "$(openssl rand -hex 24)"). Required when enableDataPipeline is true.')
+param datadogPostgresPassword string = ''
+
+@description('Datadog Agent image for the data pipeline. Data Observability for PostgreSQL needs 7.81.0 or later.')
+param datadogAgentImage string = 'datadog/agent:7.85.4'
+
 var suffix = uniqueString(subscription().subscriptionId, resourceGroup().id)
 // Resource tags = the resource group's tags (so ARM updates never strip tags a
 // tag-inheritance policy added) + any RESOURCE_TAGS pairs.
@@ -93,6 +104,16 @@ var otelMetrics = enableDatadog && contains(otelSignals, 'metrics')
 var otelLogs = enableDatadog && contains(otelSignals, 'logs')
 
 var sqlAlchemyConn = 'postgresql+psycopg2://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${pgDatabaseName}?sslmode=require'
+
+// Optional demo data pipeline (docs/data-pipeline-demo.md): off unless asked for,
+// and only with Datadog on and a password for the Agent's Postgres role.
+var enablePipeline = enableDatadog && enableDataPipeline == 'true' && !empty(datadogPostgresPassword)
+var dwDatabaseName = 'contoso_dw'
+var ddAgentName = '${namePrefix}-dd-agent'
+// Airflow connection "contoso_dw". The host must stay the server FQDN: OpenLineage
+// names the tables postgres://<host>:5432, and the Agent's check uses the same host,
+// so Data Jobs Monitoring and the Data Observability catalog see one set of tables.
+var dwConn = 'postgresql://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${dwDatabaseName}?sslmode=require'
 
 // --- Observability -----------------------------------------------------------
 
@@ -189,6 +210,13 @@ resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06
   name: pgDatabaseName
 }
 
+// The demo warehouse, on the same server but separate from Airflow's metadata DB.
+resource pgDwDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = if (enablePipeline) {
+  parent: postgres
+  name: dwDatabaseName
+  dependsOn: [ pgDatabase ]
+}
+
 // Allow other Azure services (the ACA apps) to reach the server.
 resource pgFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
   parent: postgres
@@ -277,7 +305,14 @@ var airflowEnv = [
   // Read by the bundled DAGs; empty = manual-only.
   { name: 'AIRFLOW_DEMO_SCHEDULE', value: demoDagSchedule }
   ...datadogEnvVars
+  ...pipelineEnvVars
 ]
+
+// contoso_dw_bootstrap and contoso_orders exist only when these are set.
+var pipelineEnvVars = enablePipeline ? [
+  { name: 'AIRFLOW_CONN_CONTOSO_DW', secretRef: 'contoso-dw-conn' }
+  { name: 'AIRFLOW_VAR_DATADOG_POSTGRES_PASSWORD', secretRef: 'dd-postgres-password' }
+] : []
 
 var datadogEnvVars = enableDatadog ? [
   // --- OpenLineage -> Datadog Data Jobs Monitoring (native "datadog" transport;
@@ -337,7 +372,11 @@ var executionApiEnv = [
 var airflowSecrets = concat(
   [ { name: 'sql-alchemy-conn', value: sqlAlchemyConn } ],
   [ { name: 'airflow-secret-key', value: airflowSecretKey } ],
-  enableDatadog ? [ { name: 'dd-api-key', value: datadogApiKey } ] : []
+  enableDatadog ? [ { name: 'dd-api-key', value: datadogApiKey } ] : [],
+  enablePipeline ? [
+    { name: 'contoso-dw-conn', value: dwConn }
+    { name: 'dd-postgres-password', value: datadogPostgresPassword }
+  ] : []
 )
 
 var sharedVolumes = [
@@ -525,6 +564,85 @@ resource sampleJob 'Microsoft.App/jobs@2024-03-01' = {
   }
 }
 
+// --- Datadog Agent for the demo data pipeline (optional) -----------------------
+//
+// Runs the Postgres check with Data Observability on contoso_dw: table metadata
+// for the catalog, plus the data quality monitors, which reach it over Remote
+// Configuration. Exactly one replica, so each monitor runs once. Airflow itself
+// doesn't use this Agent; it stays on the managed OTel agent. The internal
+// ingress on 8126 is the trace intake for services instrumented with dd-trace.
+
+resource ddAgent 'Microsoft.App/containerApps@2024-03-01' = if (enablePipeline) {
+  name: ddAgentName
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: false
+        targetPort: 8126
+        transport: 'http'
+      }
+      secrets: [
+        { name: 'dd-api-key', value: datadogApiKey }
+        { name: 'dd-postgres-password', value: datadogPostgresPassword }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'datadog-agent'
+          image: datadogAgentImage
+          // Write the Postgres check config from env (the password never lands on
+          // the file share), then hand over to the image's own entrypoint.
+          command: [ '/bin/sh', '-c' ]
+          args: [
+            '''
+set -eu
+mkdir -p /etc/datadog-agent/conf.d/postgres.d
+cat > /etc/datadog-agent/conf.d/postgres.d/conf.yaml <<EOF
+init_config:
+instances:
+  - host: ${DD_PG_HOST}
+    port: 5432
+    username: datadog
+    password: "${DD_PG_PASSWORD}"
+    dbname: ${DD_PG_DBNAME}
+    ssl: require
+    data_observability:
+      enabled: true
+    tags:
+      - "env:${DD_ENV}"
+EOF
+exec /bin/entrypoint.sh
+'''
+          ]
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+          env: [
+            { name: 'DD_API_KEY', secretRef: 'dd-api-key' }
+            { name: 'DD_SITE', value: datadogSite }
+            { name: 'DD_ENV', value: datadogEnv }
+            // No host to detect in a container app; name it after the app.
+            { name: 'DD_HOSTNAME', value: ddAgentName }
+            { name: 'DD_REMOTE_CONFIGURATION_ENABLED', value: 'true' }
+            { name: 'DD_APM_ENABLED', value: 'true' }
+            { name: 'DD_APM_NON_LOCAL_TRAFFIC', value: 'true' }
+            { name: 'DD_LOGS_ENABLED', value: 'false' }
+            { name: 'DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED', value: 'false' }
+            { name: 'DD_PG_HOST', value: postgres.properties.fullyQualifiedDomainName }
+            { name: 'DD_PG_DBNAME', value: dwDatabaseName }
+            { name: 'DD_PG_PASSWORD', secretRef: 'dd-postgres-password' }
+          ]
+        }
+      ]
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ pgDwDatabase ]
+}
+
 output airflowWebUrl string = 'https://${airflowWeb.properties.configuration.ingress.fqdn}'
 output sampleJobName string = sampleJob.name
 output managedEnvironmentName string = managedEnvironment.name
@@ -534,6 +652,7 @@ output airflowIdentityClientId string = identity.properties.clientId
 output airflowIdentityPrincipalId string = identity.properties.principalId
 output jobsRoleAssigned bool = assignJobsRole == 'true'
 output datadogEnabled bool = enableDatadog
+output dataPipelineEnabled bool = enablePipeline
 // If assignJobsRole=false, an admin (Owner/User Access Administrator) grants the
 // role afterward by running this exact command:
 output grantRoleCommand string = 'az role assignment create --assignee-object-id ${identity.properties.principalId} --assignee-principal-type ServicePrincipal --role Contributor --scope ${resourceGroup().id}'
