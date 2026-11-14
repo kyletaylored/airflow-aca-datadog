@@ -59,7 +59,7 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
         catchup=False,
         is_paused_upon_creation=False,
         tags=["contoso", "data-observability", "setup"],
-    ):
+    ) as dag:
 
         @task
         def bootstrap_warehouse() -> None:

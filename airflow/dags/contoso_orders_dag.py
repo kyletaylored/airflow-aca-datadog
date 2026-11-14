@@ -77,7 +77,7 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
             "skip_load": _chaos("Skip the load", "Load no orders at all."),
             "schema_drift": _chaos("Schema drift", "Add a promo_code column to raw.orders."),
         },
-    ):
+    ) as dag:
 
         def sql_task(task_id: str, statements: list[str]) -> SQLExecuteQueryOperator:
             return SQLExecuteQueryOperator(task_id=task_id, conn_id=CONN_ID, sql=statements)
