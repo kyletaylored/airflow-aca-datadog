@@ -281,8 +281,7 @@ What's still open against the "done when" lists:
 
 ## Phase 3: the Contoso story, Metabase, and one monitor of each type
 
-**Status:** built except Metabase (see 3e) and the Job monitor, which the API
-wouldn't accept, so it gets created in the UI. The narrative, team, scenarios and
+**Status:** built except Metabase (see 3e). The narrative, team, scenarios and
 run sheet are in `docs/data-pipeline-demo.md`. Monitors don't record values yet; see
 1d.
 
@@ -353,7 +352,7 @@ use yet, so treat these steps as to-verify:
 |---|---|---|---|
 | Data quality, threshold | Negative revenue on `marts.daily_store_sales` (29737312). Freshness on `staging.orders` (29737311) and `marts.daily_store_sales` (29744949). | 3, 4 | These exist already. |
 | Data quality, anomaly | Nullness on `staging.orders.customer_id` (29737310). New: daily revenue sum on `marts.daily_store_sales.revenue_usd`. | 1, 4 | Anomaly detection needs some history before it alerts. |
-| Job | Failed runs of the `contoso_orders` DAG | 2 | To create in the UI. The API takes `data-jobs alert` with a `run_query` variable (`job_type: airflow.dag`), but rejected every query string we tried. |
+| Job | Failed runs of the `contoso_orders` DAG | 2 | Created, 29746396 (`failed_runs(run_query)`, grouped by `job_name`). It counts trailing failures; tested live, it alerted 2 minutes after the third `staging_orders` attempt began. |
 | Source to target | Custom SQL counts, `raw.orders` (non-test) against `staging.orders`, alert below -50 | 2 | Created, 29745880. In Preview. |
 | Schema change | Skipped | none | Only Snowflake, BigQuery, Databricks and Redshift are supported, not Postgres. |
 
@@ -404,7 +403,7 @@ are no dashboard nodes.
 1. ~~The Metabase spike~~: done; on hold, see 3e.
 2. ~~The two new chaos switches~~: done.
 3. The new monitors: revenue anomaly (29745883) and Source to Target (29745880)
-   created; the Job monitor is still to create in the UI.
+   and the Job monitor (29746396) created.
 4. Metabase in Bicep and the seed script, once there's a license.
 5. ~~The narrative, team, scenarios and run sheet~~: done.
 
