@@ -146,6 +146,8 @@ jobs:
           NAME_PREFIX: ${{ vars.NAME_PREFIX }}
           POSTGRES_LOCATION: ${{ vars.POSTGRES_LOCATION }}
           POSTGRES_ZONE: ${{ vars.POSTGRES_ZONE }}
+          POSTGRES_SKU_NAME: ${{ vars.POSTGRES_SKU_NAME }}
+          POSTGRES_SKU_TIER: ${{ vars.POSTGRES_SKU_TIER }}
         run: |
           # A changed password or secret key would lock Airflow out of its own
           # database and sessions, and an empty DD_API_KEY turns Datadog off.
@@ -164,7 +166,7 @@ jobs:
           fi
           # An unset GitHub variable arrives as an empty string. Drop those so
           # the parameter file's ${NAME=default} values apply.
-          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE ENABLE_DATA_PIPELINE DD_POSTGRES_PASSWORD ENABLE_ORDER_STREAM; do
+          for name in DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS TELEMETRY_SIGNALS NAME_PREFIX POSTGRES_LOCATION POSTGRES_ZONE POSTGRES_SKU_NAME POSTGRES_SKU_TIER ENABLE_DATA_PIPELINE DD_POSTGRES_PASSWORD ENABLE_ORDER_STREAM; do
             eval "value=\${$name}"
             [ -n "$value" ] || unset "$name"
           done
