@@ -1,0 +1,1783 @@
+{
+  "tables": [
+    "customer_value",
+    "daily_store_sales",
+    "hourly_order_volume"
+  ],
+  "cards": [
+    {
+      "name": "Total Revenue Today",
+      "description": "Sum of revenue across all stores for the current sales day.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.daily_store_sales",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Revenue",
+                  "name": "revenue",
+                  "lib/uuid": "c029fa7d-251c-4189-b27c-5e254f5e3045"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "fa52b105-f99d-484a-b968-b6b60774dfd9"
+                  },
+                  "@field:marts.daily_store_sales.revenue_usd"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"revenue\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Total Orders Today",
+      "description": "Count of orders across all stores for the current sales day.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.daily_store_sales",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Orders",
+                  "name": "orders",
+                  "lib/uuid": "6a4f5a9c-f176-43fa-8dc9-4d71ab719746"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "0532c8bd-22fe-4e67-ade8-69a76e064783"
+                  },
+                  "@field:marts.daily_store_sales.orders"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {}
+    },
+    {
+      "name": "Average Order Value",
+      "description": "Revenue divided by orders for the current sales day.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.daily_store_sales",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "/",
+                {
+                  "display-name": "Average Order Value",
+                  "name": "aov",
+                  "lib/uuid": "09c7c741-ee47-420e-b0ab-20c5dc752e42"
+                },
+                [
+                  "sum",
+                  {
+                    "lib/uuid": "d8260389-5a28-4678-a67a-409598b1d9f1"
+                  },
+                  [
+                    "field",
+                    {
+                      "lib/uuid": "f16c8384-0663-4489-ac37-f766cb4f614e"
+                    },
+                    "@field:marts.daily_store_sales.revenue_usd"
+                  ]
+                ],
+                [
+                  "sum",
+                  {
+                    "lib/uuid": "7509d7e3-b694-471a-8b02-973a02a8bb56"
+                  },
+                  [
+                    "field",
+                    {
+                      "lib/uuid": "8b0db6e1-351d-433e-9c8d-0c31300e4631"
+                    },
+                    "@field:marts.daily_store_sales.orders"
+                  ]
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"aov\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Hourly Orders by Store",
+      "description": "Order volume per hour, stacked by store. A flat or missing hour points to an ingestion gap.",
+      "display": "area",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Orders",
+                  "name": "orders",
+                  "lib/uuid": "813100f2-7e26-49ea-81b5-a7525d53818c"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "3285a945-1154-4207-baaa-5b9eaa47a815"
+                  },
+                  "@field:marts.hourly_order_volume.orders"
+                ]
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.hourly_order_volume",
+            "breakout": [
+              [
+                "field",
+                {
+                  "temporal-unit": "hour",
+                  "lib/uuid": "5c448f5b-e1e1-40fc-9fb2-cfaa41231a7f"
+                },
+                "@field:marts.hourly_order_volume.order_hour"
+              ],
+              [
+                "field",
+                {
+                  "lib/uuid": "0d1b0d3c-fbdb-4f75-9917-37c59718975e"
+                },
+                "@field:marts.hourly_order_volume.store"
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_hour",
+          "store"
+        ],
+        "stackable.stack_type": "stacked",
+        "graph.x_axis.title_text": "Hour",
+        "graph.y_axis.title_text": "Orders",
+        "graph.metrics": [
+          "orders"
+        ]
+      }
+    },
+    {
+      "name": "Revenue by Store",
+      "description": "Today's revenue per store, highest first.",
+      "display": "row",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Revenue",
+                  "name": "revenue",
+                  "lib/uuid": "af097d83-5e3f-4881-8e1f-a3f1a6681d53"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/Decimal",
+                    "lib/uuid": "31c21621-8658-47fc-a49e-5c96a12cfa7d",
+                    "effective-type": "type/Decimal"
+                  },
+                  "@field:marts.daily_store_sales.revenue_usd"
+                ]
+              ]
+            ],
+            "breakout": [
+              [
+                "field",
+                {
+                  "base-type": "type/Text",
+                  "lib/uuid": "7dfdf4b5-b63d-451d-a10d-4c06050427ba",
+                  "effective-type": "type/Text"
+                },
+                "@field:marts.daily_store_sales.store"
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.daily_store_sales",
+            "order-by": [
+              [
+                "desc",
+                {
+                  "lib/uuid": "1021d162-99a5-45c9-8a63-37ea14284e3a"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/Float",
+                    "base-type": "type/Float",
+                    "lib/uuid": "a5cfd5d6-09f7-416b-a0a3-8705242c08b4"
+                  },
+                  "af097d83-5e3f-4881-8e1f-a3f1a6681d53"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "a451ae63-e231-4d22-a5f7-60d1667be659"
+                },
+                [
+                  "field",
+                  {
+                    "effective-type": "type/Text",
+                    "lib/uuid": "0e8f7f22-7272-45f0-b3f3-2b6df8d605a2",
+                    "base-type": "type/Text"
+                  },
+                  "@field:marts.daily_store_sales.store"
+                ]
+              ]
+            ]
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "store"
+        ],
+        "graph.show_values": true,
+        "column_settings": {
+          "[\"name\",\"revenue\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 0
+          }
+        },
+        "graph.metrics": [
+          "revenue"
+        ]
+      }
+    },
+    {
+      "name": "Store Leaderboard",
+      "description": "Per-store orders, revenue, average order value, and most recent order time.",
+      "display": "table",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Orders",
+                  "name": "orders",
+                  "lib/uuid": "2d40cb3b-090d-4a54-809a-e8176c2bf0f2"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/Integer",
+                    "lib/uuid": "643c90a4-b09b-4c9d-9b79-0e3f66e0d57a",
+                    "effective-type": "type/Integer"
+                  },
+                  "@field:marts.daily_store_sales.orders"
+                ]
+              ],
+              [
+                "sum",
+                {
+                  "display-name": "Revenue",
+                  "name": "revenue",
+                  "lib/uuid": "46e98db5-82b6-4e44-b7a9-02580e9f1442"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/Decimal",
+                    "lib/uuid": "6245d9be-41df-4434-91b7-56f332bbc9ca",
+                    "effective-type": "type/Decimal"
+                  },
+                  "@field:marts.daily_store_sales.revenue_usd"
+                ]
+              ],
+              [
+                "/",
+                {
+                  "display-name": "Avg Order Value",
+                  "name": "aov",
+                  "lib/uuid": "944d3228-cc33-4356-856d-a490f3998daf"
+                },
+                [
+                  "sum",
+                  {
+                    "lib/uuid": "1f3444df-c61d-4660-952d-47bc0ea2b856"
+                  },
+                  [
+                    "field",
+                    {
+                      "base-type": "type/Decimal",
+                      "lib/uuid": "76b0d7b6-992f-4b43-9d9d-62df1d96b668",
+                      "effective-type": "type/Decimal"
+                    },
+                    "@field:marts.daily_store_sales.revenue_usd"
+                  ]
+                ],
+                [
+                  "sum",
+                  {
+                    "lib/uuid": "c9d9342c-2f9b-4a2a-9d0b-a0763b27d781"
+                  },
+                  [
+                    "field",
+                    {
+                      "base-type": "type/Integer",
+                      "lib/uuid": "f35f5e72-a885-4e84-8b40-c0a58a0d223a",
+                      "effective-type": "type/Integer"
+                    },
+                    "@field:marts.daily_store_sales.orders"
+                  ]
+                ]
+              ],
+              [
+                "max",
+                {
+                  "display-name": "Last Order At",
+                  "name": "last_order",
+                  "lib/uuid": "7971cc08-4560-409c-bf15-3074929bf3a2"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/DateTimeWithLocalTZ",
+                    "lib/uuid": "baf21952-e0b1-4244-8675-aa3638a1f1d7",
+                    "effective-type": "type/DateTimeWithLocalTZ"
+                  },
+                  "@field:marts.daily_store_sales.last_order_at"
+                ]
+              ]
+            ],
+            "breakout": [
+              [
+                "field",
+                {
+                  "base-type": "type/Text",
+                  "lib/uuid": "4e51058d-9636-49cc-994f-34bb6edc8677",
+                  "effective-type": "type/Text"
+                },
+                "@field:marts.daily_store_sales.store"
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.daily_store_sales",
+            "order-by": [
+              [
+                "desc",
+                {
+                  "lib/uuid": "af663c8b-e588-4c1a-98a7-dadb7b026062"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/Float",
+                    "base-type": "type/Float",
+                    "lib/uuid": "8f39e944-ffad-4bed-84cd-6454ddbc3742"
+                  },
+                  "46e98db5-82b6-4e44-b7a9-02580e9f1442"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "a59d1482-2eeb-4bf4-a742-fe1a41ea296c"
+                },
+                [
+                  "field",
+                  {
+                    "effective-type": "type/Text",
+                    "lib/uuid": "c7718049-c1b2-4ab1-9122-65439e05ca1f",
+                    "base-type": "type/Text"
+                  },
+                  "@field:marts.daily_store_sales.store"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "f7458eb0-3b64-4a31-8a07-927a81e2c612"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/Integer",
+                    "lib/uuid": "e1b03dd0-999d-4fdb-bcad-d59c9437f903",
+                    "base-type": "type/Integer",
+                    "lib/source-name": "orders"
+                  },
+                  "2d40cb3b-090d-4a54-809a-e8176c2bf0f2"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "a4bdd217-70ba-4b66-ade2-a59ba761592d"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/Float",
+                    "lib/uuid": "388113a2-45c9-4249-9718-4bdd75fcefc2",
+                    "base-type": "type/Float",
+                    "lib/source-name": "aov"
+                  },
+                  "944d3228-cc33-4356-856d-a490f3998daf"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "82930270-a45c-4b08-bd19-cfe6180523f3"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/DateTimeWithLocalTZ",
+                    "lib/uuid": "224466e0-1f7e-4675-8d29-ed7620cdb3ae",
+                    "base-type": "type/DateTimeWithLocalTZ",
+                    "lib/source-name": "last_order"
+                  },
+                  "7971cc08-4560-409c-bf15-3074929bf3a2"
+                ]
+              ]
+            ]
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"revenue\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 0
+          },
+          "[\"name\",\"aov\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 2
+          },
+          "[\"name\",\"last_order\"]": {
+            "time_enabled": "seconds"
+          }
+        }
+      }
+    },
+    {
+      "name": "Active Customers",
+      "description": "Number of customers who have placed at least one order.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.customer_value",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "count",
+                {
+                  "display-name": "Customers",
+                  "name": "customers",
+                  "lib/uuid": "12e0ed27-80ea-4ad3-a149-a392f51cd1e9"
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {}
+    },
+    {
+      "name": "Avg Revenue per Customer",
+      "description": "Mean lifetime revenue per customer.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.customer_value",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "avg",
+                {
+                  "display-name": "Avg Revenue per Customer",
+                  "name": "avg_revenue",
+                  "lib/uuid": "591598c9-ecaa-42de-95a5-c43b9b96d09b"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "ec72a774-72ef-4a40-842c-d5c3cb031196"
+                  },
+                  "@field:marts.customer_value.revenue_usd"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"avg_revenue\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Avg Orders per Customer",
+      "description": "Mean number of orders per customer.",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "source-table": "@table:marts.customer_value",
+            "lib/type": "mbql.stage/mbql",
+            "aggregation": [
+              [
+                "avg",
+                {
+                  "display-name": "Avg Orders per Customer",
+                  "name": "avg_orders",
+                  "lib/uuid": "a9d44640-ef0d-4499-85b6-64e0e2a80d32"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "f350dc64-c85b-4910-b015-b2d5fbf91db0"
+                  },
+                  "@field:marts.customer_value.orders"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"avg_orders\"]": {
+            "decimals": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Customer Revenue by Region",
+      "description": "Total customer revenue per region.",
+      "display": "bar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Revenue",
+                  "name": "revenue",
+                  "lib/uuid": "faf4c2b6-0424-4b9e-b8c9-fe6f10c7a231"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "f4e6bb3f-b977-4983-987f-23ab7fbf95bc"
+                  },
+                  "@field:marts.customer_value.revenue_usd"
+                ]
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "breakout": [
+              [
+                "field",
+                {
+                  "lib/uuid": "763015e5-c114-4aa5-b053-0e3b438297d1"
+                },
+                "@field:marts.customer_value.region"
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "region"
+        ],
+        "graph.show_values": true,
+        "column_settings": {
+          "[\"name\",\"revenue\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 0
+          }
+        },
+        "graph.metrics": [
+          "revenue"
+        ]
+      }
+    },
+    {
+      "name": "Customers by Region",
+      "description": "Share of customers in each region.",
+      "display": "pie",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "count",
+                {
+                  "display-name": "Customers",
+                  "name": "customers",
+                  "lib/uuid": "414910d4-fd65-4f37-9613-453b2d1179da"
+                }
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "breakout": [
+              [
+                "field",
+                {
+                  "lib/uuid": "184a3f80-3481-48d7-a4ff-0940d6f48997"
+                },
+                "@field:marts.customer_value.region"
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "pie.dimension": "region",
+        "pie.metric": "customers"
+      }
+    },
+    {
+      "name": "Customer Revenue Distribution",
+      "description": "Histogram of customers by lifetime revenue.",
+      "display": "bar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "count",
+                {
+                  "display-name": "Customers",
+                  "name": "customers",
+                  "lib/uuid": "028bfa5b-6ca9-412d-b0ab-986f6f0f5ed5"
+                }
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "breakout": [
+              [
+                "field",
+                {
+                  "binning": {
+                    "strategy": "num-bins",
+                    "num-bins": 20
+                  },
+                  "lib/uuid": "f348e030-d38e-4e1a-9ccb-25f89effe798"
+                },
+                "@field:marts.customer_value.revenue_usd"
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "revenue_usd"
+        ],
+        "graph.x_axis.title_text": "Customer revenue (USD)",
+        "graph.y_axis.title_text": "Customers",
+        "graph.metrics": [
+          "customers"
+        ]
+      }
+    },
+    {
+      "name": "Orders per Customer",
+      "description": "How many customers placed 1, 2, 3, ... orders.",
+      "display": "bar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "aggregation": [
+              [
+                "count",
+                {
+                  "display-name": "Customers",
+                  "name": "customers",
+                  "lib/uuid": "fafa6bfa-0dff-40f2-b2a4-90a04b56c42b"
+                }
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "breakout": [
+              [
+                "field",
+                {
+                  "lib/uuid": "5710a623-e0ac-417f-9f30-27b5cc729fbb"
+                },
+                "@field:marts.customer_value.orders"
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "orders"
+        ],
+        "graph.x_axis.title_text": "Orders placed",
+        "graph.y_axis.title_text": "Customers",
+        "graph.metrics": [
+          "customers"
+        ]
+      }
+    },
+    {
+      "name": "Top 25 Customers by Revenue",
+      "description": "Highest-value customers with order counts and first/last order times.",
+      "display": "table",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "fields": [
+              [
+                "field",
+                {
+                  "base-type": "type/Text",
+                  "lib/uuid": "4853666d-50ae-4d9c-92f8-ac965dcaaa30",
+                  "effective-type": "type/Text"
+                },
+                "@field:marts.customer_value.customer_id"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/Text",
+                  "lib/uuid": "5da2dae4-a622-49f8-bd91-a7257b71df8e",
+                  "effective-type": "type/Text"
+                },
+                "@field:marts.customer_value.region"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/Integer",
+                  "lib/uuid": "2189017c-ee32-46c2-ae46-84e14005d4c0",
+                  "effective-type": "type/Integer"
+                },
+                "@field:marts.customer_value.orders"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/Decimal",
+                  "lib/uuid": "66d6c233-fac6-418e-a5a7-d9c193d5c37e",
+                  "effective-type": "type/Decimal"
+                },
+                "@field:marts.customer_value.revenue_usd"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/DateTimeWithLocalTZ",
+                  "lib/uuid": "e0cc8f2e-045e-4dcd-be91-cfc0ca782273",
+                  "effective-type": "type/DateTimeWithLocalTZ"
+                },
+                "@field:marts.customer_value.first_order_at"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/DateTimeWithLocalTZ",
+                  "lib/uuid": "87611d24-7891-4341-ae57-eec490d7250c",
+                  "effective-type": "type/DateTimeWithLocalTZ"
+                },
+                "@field:marts.customer_value.last_order_at"
+              ]
+            ],
+            "order-by": [
+              [
+                "desc",
+                {
+                  "lib/uuid": "ac9be903-7bc4-488f-bd65-f26bdaf796c6"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/Decimal",
+                    "lib/uuid": "9944dbe2-b5ff-45cd-9d8f-1be2bffa9ce4",
+                    "effective-type": "type/Decimal"
+                  },
+                  "@field:marts.customer_value.revenue_usd"
+                ]
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "limit": 25
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "column_settings": {
+          "[\"name\",\"revenue_usd\"]": {
+            "number_style": "currency",
+            "currency": "USD",
+            "decimals": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Orders vs Revenue per Customer",
+      "description": "Each dot is a customer. Points below zero revenue would indicate refund errors.",
+      "display": "scatter",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.customer_value",
+            "fields": [
+              [
+                "field",
+                {
+                  "base-type": "type/Integer",
+                  "lib/uuid": "2de1b712-e793-44a0-9a99-04a6aedd1721",
+                  "effective-type": "type/Integer"
+                },
+                "@field:marts.customer_value.orders"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/Decimal",
+                  "lib/uuid": "b9b0fdb7-21e3-4f58-b857-e972afff4099",
+                  "effective-type": "type/Decimal"
+                },
+                "@field:marts.customer_value.revenue_usd"
+              ],
+              [
+                "field",
+                {
+                  "base-type": "type/Text",
+                  "lib/uuid": "23dcbb00-f7f7-471a-80d5-4451c041e3d2",
+                  "effective-type": "type/Text"
+                },
+                "@field:marts.customer_value.region"
+              ]
+            ]
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "orders"
+        ],
+        "graph.x_axis.title_text": "Orders",
+        "graph.y_axis.title_text": "Revenue (USD)",
+        "graph.metrics": [
+          "revenue_usd"
+        ]
+      }
+    },
+    {
+      "name": "Mart Freshness",
+      "description": "Row count, last refresh time, and latest event time per mart. Rows turn red past 45 minutes stale, the same threshold the Datadog freshness monitor uses.",
+      "display": "table",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "lib/type": "mbql.stage/native",
+            "native": "select mart, row_count, last_refreshed_at,\n       round(extract(epoch from now() - last_refreshed_at) / 60, 1) as minutes_since_refresh,\n       latest_event_at,\n       round(extract(epoch from now() - latest_event_at) / 60, 1) as minutes_since_latest_event\nfrom (\n  select 'daily_store_sales' as mart, count(*) as row_count, max(updated_at) as last_refreshed_at, max(last_order_at) as latest_event_at from marts.daily_store_sales\n  union all\n  select 'hourly_order_volume', count(*), max(updated_at), max(order_hour) + interval '1 hour' from marts.hourly_order_volume\n  union all\n  select 'customer_value', count(*), max(updated_at), max(last_order_at) from marts.customer_value\n) m\norder by minutes_since_refresh desc"
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "table.column_formatting": [
+          {
+            "columns": [
+              "minutes_since_refresh"
+            ],
+            "type": "single",
+            "operator": ">",
+            "value": 45,
+            "color": "#ED6E6E",
+            "highlight_row": true
+          },
+          {
+            "columns": [
+              "minutes_since_refresh"
+            ],
+            "type": "single",
+            "operator": ">",
+            "value": 20,
+            "color": "#F9CF48",
+            "highlight_row": false
+          }
+        ],
+        "column_settings": {
+          "[\"name\",\"last_refreshed_at\"]": {
+            "time_enabled": "seconds"
+          },
+          "[\"name\",\"latest_event_at\"]": {
+            "time_enabled": "seconds"
+          },
+          "[\"name\",\"minutes_since_refresh\"]": {
+            "decimals": 1,
+            "suffix": " min"
+          },
+          "[\"name\",\"minutes_since_latest_event\"]": {
+            "decimals": 1,
+            "suffix": " min"
+          }
+        }
+      }
+    },
+    {
+      "name": "Minutes Since Store Sales Refresh",
+      "description": "Minutes since marts.daily_store_sales was last rebuilt. Above 45 means the DAG has stalled or failed, for example under breaking_schema.",
+      "display": "gauge",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "lib/type": "mbql.stage/native",
+            "native": "select round(extract(epoch from now() - max(updated_at)) / 60, 1) as minutes_since_refresh from marts.daily_store_sales"
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "gauge.segments": [
+          {
+            "min": 0,
+            "max": 20,
+            "color": "#84BB4C",
+            "label": "Fresh"
+          },
+          {
+            "min": 20,
+            "max": 45,
+            "color": "#F9CF48",
+            "label": "Lagging"
+          },
+          {
+            "min": 45,
+            "max": 90,
+            "color": "#ED6E6E",
+            "label": "Stale"
+          }
+        ],
+        "column_settings": {
+          "[\"name\",\"minutes_since_refresh\"]": {
+            "decimals": 1,
+            "suffix": " min"
+          }
+        }
+      }
+    },
+    {
+      "name": "Stores with Negative Revenue",
+      "description": "Should always be 0. Anything above 0 means refund handling is broken in the store sales mart (refund_bug).",
+      "display": "scalar",
+      "type": "question",
+      "dataset_query": {
+        "database": "@database",
+        "lib/type": "mbql/query",
+        "stages": [
+          {
+            "filters": [
+              [
+                "<",
+                {
+                  "lib/uuid": "308f6506-3dd4-4621-9b1a-a785ef1d0c30"
+                },
+                [
+                  "field",
+                  {
+                    "lib/uuid": "e9525bea-5161-40ce-83d4-31b9b8cfdd1a"
+                  },
+                  "@field:marts.daily_store_sales.revenue_usd"
+                ],
+                0
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.daily_store_sales",
+            "aggregation": [
+              [
+                "count",
+                {
+                  "display-name": "Stores with negative revenue",
+                  "name": "stores",
+                  "lib/uuid": "c82db04f-131f-48dd-9b0d-e01d5aeedd76"
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "visualization_settings": {}
+    },
+    {
+      "name": "Total Orders per Hour",
+      "description": "All-store order volume per hour. A drop to zero or a missing hour means the stream or the DAG stopped.",
+      "display": "line",
+      "type": "question",
+      "dataset_query": {
+        "stages": [
+          {
+            "breakout": [
+              [
+                "field",
+                {
+                  "base-type": "type/DateTimeWithLocalTZ",
+                  "temporal-unit": "hour",
+                  "lib/uuid": "edf8c678-075f-4dad-890f-8b7aabfd75ed",
+                  "effective-type": "type/DateTimeWithLocalTZ"
+                },
+                "@field:marts.hourly_order_volume.order_hour"
+              ]
+            ],
+            "aggregation": [
+              [
+                "sum",
+                {
+                  "display-name": "Orders",
+                  "name": "orders",
+                  "lib/uuid": "92a7c0ae-1d05-4fa2-97c2-01e88652b9f2"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/Integer",
+                    "lib/uuid": "b76a4b68-e18d-4fbb-b41f-ad45f17bbbb9",
+                    "effective-type": "type/Integer"
+                  },
+                  "@field:marts.hourly_order_volume.orders"
+                ]
+              ]
+            ],
+            "lib/type": "mbql.stage/mbql",
+            "source-table": "@table:marts.hourly_order_volume",
+            "order-by": [
+              [
+                "asc",
+                {
+                  "lib/uuid": "e9c7d21b-7b0d-4fbd-be40-86cb394ab8f3"
+                },
+                [
+                  "field",
+                  {
+                    "base-type": "type/DateTimeWithLocalTZ",
+                    "lib/uuid": "0130ba5f-ff08-4ad8-8429-3f67c92dd46e",
+                    "effective-type": "type/DateTimeWithLocalTZ",
+                    "inherited-temporal-unit": "hour",
+                    "temporal-unit": "hour"
+                  },
+                  "@field:marts.hourly_order_volume.order_hour"
+                ]
+              ],
+              [
+                "asc",
+                {
+                  "lib/uuid": "c9bb5f1a-ea13-4f2a-b06c-90f47711e673"
+                },
+                [
+                  "aggregation",
+                  {
+                    "effective-type": "type/Integer",
+                    "lib/uuid": "4d5d8b2a-722b-4725-a156-f7a941f66884",
+                    "base-type": "type/Integer",
+                    "lib/source-name": "orders"
+                  },
+                  "92a7c0ae-1d05-4fa2-97c2-01e88652b9f2"
+                ]
+              ]
+            ]
+          }
+        ],
+        "lib/type": "mbql/query",
+        "database": "@database"
+      },
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_hour"
+        ],
+        "graph.show_values": true,
+        "graph.x_axis.title_text": "Hour",
+        "graph.y_axis.title_text": "Orders",
+        "graph.metrics": [
+          "orders"
+        ]
+      }
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "Store Sales — Today",
+      "description": "Live intraday sales across the seven Contoso stores, from marts.daily_store_sales and marts.hourly_order_volume.",
+      "width": "full",
+      "parameters": [
+        {
+          "values_query_type": "list",
+          "name": "Store",
+          "isMultiSelect": true,
+          "type": "string/=",
+          "sectionId": "string",
+          "id": "store",
+          "slug": "store"
+        }
+      ],
+      "dashcards": [
+        {
+          "card": null,
+          "row": 0,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "Key numbers",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Total Revenue Today",
+          "row": 1,
+          "col": 0,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.daily_store_sales.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Total Orders Today",
+          "row": 1,
+          "col": 8,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.daily_store_sales.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Average Order Value",
+          "row": 1,
+          "col": 16,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.daily_store_sales.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": null,
+          "row": 4,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "By store",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Revenue by Store",
+          "row": 5,
+          "col": 0,
+          "size_x": 12,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.daily_store_sales.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Store Leaderboard",
+          "row": 5,
+          "col": 12,
+          "size_x": 12,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.daily_store_sales.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": null,
+          "row": 12,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "Through the day",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Hourly Orders by Store",
+          "row": 13,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "store",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.hourly_order_volume.store",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customer Value",
+      "description": "Who the customers are and what they're worth, by region, from marts.customer_value.",
+      "width": "full",
+      "parameters": [
+        {
+          "values_query_type": "list",
+          "name": "Region",
+          "isMultiSelect": true,
+          "type": "string/=",
+          "sectionId": "string",
+          "id": "region",
+          "slug": "region"
+        }
+      ],
+      "dashcards": [
+        {
+          "card": null,
+          "row": 0,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "Key numbers",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Active Customers",
+          "row": 1,
+          "col": 0,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Avg Revenue per Customer",
+          "row": 1,
+          "col": 8,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Avg Orders per Customer",
+          "row": 1,
+          "col": 16,
+          "size_x": 8,
+          "size_y": 3,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": null,
+          "row": 4,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "By region",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Customer Revenue by Region",
+          "row": 5,
+          "col": 0,
+          "size_x": 14,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Customers by Region",
+          "row": 5,
+          "col": 14,
+          "size_x": 10,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": null,
+          "row": 12,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 1,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "heading",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "Distribution",
+            "dashcard.background": false
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Customer Revenue Distribution",
+          "row": 13,
+          "col": 0,
+          "size_x": 12,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Orders per Customer",
+          "row": 13,
+          "col": 12,
+          "size_x": 12,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Orders vs Revenue per Customer",
+          "row": 20,
+          "col": 0,
+          "size_x": 12,
+          "size_y": 9,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "card": "Top 25 Customers by Revenue",
+          "row": 20,
+          "col": 12,
+          "size_x": 12,
+          "size_y": 9,
+          "visualization_settings": {},
+          "parameter_mappings": [
+            {
+              "parameter_id": "region",
+              "target": [
+                "dimension",
+                [
+                  "field",
+                  "@field:marts.customer_value.region",
+                  null
+                ],
+                {
+                  "stage-number": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pipeline Health",
+      "description": "Freshness and correctness checks on the contoso_dw marts: the business-side view of what the Datadog data observability monitors catch.",
+      "width": "full",
+      "parameters": [],
+      "dashcards": [
+        {
+          "card": "Minutes Since Store Sales Refresh",
+          "row": 0,
+          "col": 0,
+          "size_x": 8,
+          "size_y": 5,
+          "visualization_settings": {},
+          "parameter_mappings": []
+        },
+        {
+          "card": "Stores with Negative Revenue",
+          "row": 0,
+          "col": 8,
+          "size_x": 8,
+          "size_y": 5,
+          "visualization_settings": {},
+          "parameter_mappings": []
+        },
+        {
+          "card": null,
+          "row": 0,
+          "col": 16,
+          "size_x": 8,
+          "size_y": 5,
+          "visualization_settings": {
+            "virtual_card": {
+              "name": null,
+              "display": "text",
+              "visualization_settings": {},
+              "archived": false
+            },
+            "text": "**What to watch**\n\n- **Freshness** goes red past 45 min when the DAG stalls or fails (`breaking_schema`).\n- **Negative revenue** goes above 0 when refunds are miscounted (`refund_bug`, Denver).\n- **Orders per hour** flattening means the order stream stopped."
+          },
+          "parameter_mappings": []
+        },
+        {
+          "card": "Mart Freshness",
+          "row": 5,
+          "col": 0,
+          "size_x": 24,
+          "size_y": 4,
+          "visualization_settings": {},
+          "parameter_mappings": []
+        },
+        {
+          "card": "Total Orders per Hour",
+          "row": 9,
+          "col": 0,
+          "size_x": 14,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": []
+        },
+        {
+          "card": "Revenue by Store",
+          "row": 9,
+          "col": 14,
+          "size_x": 10,
+          "size_y": 7,
+          "visualization_settings": {},
+          "parameter_mappings": []
+        }
+      ]
+    }
+  ]
+}

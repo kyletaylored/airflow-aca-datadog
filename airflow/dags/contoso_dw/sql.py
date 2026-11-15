@@ -133,6 +133,35 @@ def datadog_grants(database: str) -> list[str]:
     return grants
 
 
+METABASE_ROLE = "metabase"
+METABASE_DATABASE = "metabase"
+
+
+def metabase_grants(database: str) -> list[str]:
+    """What Metabase's role needs: its own database, and read access to the marts only.
+
+    Azure's admin isn't a superuser, so it takes the role itself before it can hand
+    the role a database.
+    """
+    return [
+        f"GRANT {METABASE_ROLE} TO CURRENT_USER",
+        f"ALTER DATABASE {METABASE_DATABASE} OWNER TO {METABASE_ROLE}",
+        f"GRANT CONNECT ON DATABASE {database} TO {METABASE_ROLE}",
+        f"GRANT USAGE ON SCHEMA marts TO {METABASE_ROLE}",
+        f"GRANT SELECT ON ALL TABLES IN SCHEMA marts TO {METABASE_ROLE}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA marts GRANT SELECT ON TABLES TO {METABASE_ROLE}",
+    ]
+
+
+# Run in the metabase database. Metabase's migrations need citext (on the server's
+# azure.extensions list, which Bicep sets) and a public schema they can write to;
+# in a new Azure database that schema belongs to azure_pg_admin.
+METABASE_DATABASE_SETUP = [
+    "CREATE EXTENSION IF NOT EXISTS citext",
+    f"ALTER SCHEMA public OWNER TO {METABASE_ROLE}",
+]
+
+
 def upsert_customers(fraction: str) -> str:
     """Upsert the fixed customer pool; ``fraction`` of it is touched each time.
 

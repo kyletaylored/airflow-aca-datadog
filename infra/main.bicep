@@ -85,6 +85,20 @@ param enableOrderStream string = 'false'
 @description('Orders per minute the storefront produces.')
 param storefrontOrdersPerMinute string = '20'
 
+@description('Add Metabase (open source) to the data pipeline: dashboards over contoso_dw.marts, which Datadog\'s Metabase integration shows in lineage below the marts. Needs enableDataPipeline and metabasePostgresPassword. Scales to zero when idle. Metabase needs more Postgres connections than Standard_B1ms allows: use Standard_B2s and postgresMaxConnections=200.')
+@allowed([ 'true', 'false' ])
+param enableMetabase string = 'false'
+
+@secure()
+@description('Password for the "metabase" Postgres role (set via: azd env set METABASE_DB_PASSWORD "$(openssl rand -hex 24)"). Metabase keeps its own data in the metabase database as this role, and reads contoso_dw.marts with it. Use hex: it goes into a connection URI unescaped. Required when enableMetabase is true.')
+param metabasePostgresPassword string = ''
+
+@description('Metabase image (the open-source edition).')
+param metabaseImage string = 'metabase/metabase:v0.65.4.4'
+
+@description('Postgres max_connections. Empty leaves the server\'s value as it is. Standard_B1ms can\'t go above 50; Metabase on Standard_B2s needs 200.')
+param postgresMaxConnections string = ''
+
 var suffix = uniqueString(subscription().subscriptionId, resourceGroup().id)
 // Resource tags = the resource group's tags (so ARM updates never strip tags a
 // tag-inheritance policy added) + any RESOURCE_TAGS pairs.
@@ -132,6 +146,11 @@ var landingContainerName = 'landing'
 // Packages the two services install at startup on python:3.12-slim.
 var streamPackages = 'ddtrace==4.16.1 confluent-kafka==2.16.1 azure-storage-blob==12.31.1'
 var dwConn = 'postgresql://${postgresAdminUser}:${postgresAdminPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/${dwDatabaseName}?sslmode=require'
+// Metabase (optional, on top of the pipeline). contoso_dw_bootstrap creates its
+// role; Metabase keeps restarting until that has run.
+var enableMb = enablePipeline && enableMetabase == 'true' && !empty(metabasePostgresPassword)
+var mbDatabaseName = 'metabase'
+var mbDbUri = 'postgres://${postgres.properties.fullyQualifiedDomainName}:5432/${mbDatabaseName}?user=metabase&password=${metabasePostgresPassword}&sslmode=require'
 
 // --- Observability -----------------------------------------------------------
 
@@ -235,6 +254,29 @@ resource pgDwDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-
   dependsOn: [ pgDatabase ]
 }
 
+// Metabase's own data (questions, dashboards, users), on the same server.
+resource pgMbDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = if (enableMb) {
+  parent: postgres
+  name: mbDatabaseName
+  dependsOn: [ pgDwDatabase ]
+}
+
+// Metabase's migrations create the citext extension, which Azure only allows
+// once it's on this list. Server settings are applied one at a time.
+resource pgExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (enableMb) {
+  parent: postgres
+  name: 'azure.extensions'
+  properties: { value: 'CITEXT', source: 'user-override' }
+  dependsOn: [ pgMbDatabase ]
+}
+
+resource pgMaxConnections 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (!empty(postgresMaxConnections)) {
+  parent: postgres
+  name: 'max_connections'
+  properties: { value: postgresMaxConnections, source: 'user-override' }
+  dependsOn: [ pgExtensions ]
+}
+
 // Allow other Azure services (the ACA apps) to reach the server.
 resource pgFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
   parent: postgres
@@ -335,6 +377,9 @@ var pipelineEnvVars = concat(enablePipeline ? [
   { name: 'CONTOSO_LANDING_ACCOUNT', value: landingAccountName }
   { name: 'CONTOSO_LANDING_CONTAINER', value: landingContainerName }
   { name: 'CONTOSO_LANDING_CONNECTION_STRING', secretRef: 'landing-conn' }
+] : [], enableMb ? [
+  // contoso_dw_bootstrap creates the metabase role and its database grants.
+  { name: 'AIRFLOW_VAR_METABASE_POSTGRES_PASSWORD', secretRef: 'mb-postgres-password' }
 ] : [])
 
 var datadogEnvVars = enableDatadog ? [
@@ -400,7 +445,8 @@ var airflowSecrets = concat(
     { name: 'contoso-dw-conn', value: dwConn }
     { name: 'dd-postgres-password', value: datadogPostgresPassword }
   ] : [],
-  enableStream ? [ { name: 'landing-conn', value: landingConn } ] : []
+  enableStream ? [ { name: 'landing-conn', value: landingConn } ] : [],
+  enableMb ? [ { name: 'mb-postgres-password', value: metabasePostgresPassword } ] : []
 )
 
 var sharedVolumes = [
@@ -833,6 +879,55 @@ resource orderProcessor 'Microsoft.App/containerApps@2024-03-01' = if (enableStr
   dependsOn: [ envStorage, ddAgent, landingContainer ]
 }
 
+// --- Metabase for the demo data pipeline (optional) ----------------------------
+//
+// The BI layer over contoso_dw.marts. Datadog's Metabase integration (set up in
+// Datadog, with this app's URL and a Metabase API key) crawls its dashboards and
+// questions, so they show in lineage below the marts. The open-source edition is
+// enough for that; only usage analytics needs Pro. scripts/metabase_seed.py
+// creates the demo's dashboards. Scales to zero: the first request (or Datadog's
+// crawl) takes about a minute while it starts.
+
+resource metabase 'Microsoft.App/containerApps@2024-03-01' = if (enableMb) {
+  name: '${namePrefix}-metabase'
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 3000
+        transport: 'auto'
+      }
+      secrets: [
+        { name: 'mb-db-uri', value: mbDbUri }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'metabase'
+          image: metabaseImage
+          resources: { cpu: json('1.0'), memory: '2Gi' }
+          env: [
+            { name: 'MB_DB_CONNECTION_URI', secretRef: 'mb-db-uri' }
+            { name: 'JAVA_TIMEZONE', value: 'UTC' }
+            // Without a heap size the JVM sizes itself for about 500 MB of the 2 GiB.
+            { name: 'JAVA_OPTS', value: '-Xmx1536m' }
+            // Metabase's default pools took 13 of the 35 connections B1ms leaves free.
+            { name: 'MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE', value: '4' }
+            { name: 'MB_JDBC_DATA_WAREHOUSE_MAX_CONNECTION_POOL_SIZE', value: '3' }
+          ]
+        }
+      ]
+      scale: { minReplicas: 0, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ pgMbDatabase, pgExtensions ]
+}
+
 output airflowWebUrl string = 'https://${airflowWeb.properties.configuration.ingress.fqdn}'
 output sampleJobName string = sampleJob.name
 output managedEnvironmentName string = managedEnvironment.name
@@ -844,6 +939,7 @@ output jobsRoleAssigned bool = assignJobsRole == 'true'
 output datadogEnabled bool = enableDatadog
 output dataPipelineEnabled bool = enablePipeline
 output orderStreamEnabled bool = enableStream
+output metabaseUrl string = enableMb ? 'https://${metabase!.properties.configuration.ingress.fqdn}' : ''
 // If assignJobsRole=false, an admin (Owner/User Access Administrator) grants the
 // role afterward by running this exact command:
 output grantRoleCommand string = 'az role assignment create --assignee-object-id ${identity.properties.principalId} --assignee-principal-type ServicePrincipal --role Contributor --scope ${resourceGroup().id}'

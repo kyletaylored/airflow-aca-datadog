@@ -64,6 +64,15 @@
     },
     "enableOrderStream": {
       "value": "${ENABLE_ORDER_STREAM=false}"
+    },
+    "enableMetabase": {
+      "value": "${ENABLE_METABASE=false}"
+    },
+    "metabasePostgresPassword": {
+      "value": "${METABASE_DB_PASSWORD}"
+    },
+    "postgresMaxConnections": {
+      "value": "${POSTGRES_MAX_CONNECTIONS}"
     }
   }
 }

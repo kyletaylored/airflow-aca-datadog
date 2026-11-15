@@ -125,6 +125,29 @@ to the pipeline's Agent. This is the only part of the repo that uses a Datadog S
 For open-source languages, DSM supports Kafka and RabbitMQ (Azure Service Bus only
 from .NET), which is why the stream uses Event Hubs' Kafka endpoint.
 
+### Metabase (`ENABLE_METABASE`)
+
+John's dashboards, on the marts. With Datadog's
+[Metabase integration](https://docs.datadoghq.com/integrations/metabase/) they appear
+in lineage below the `marts` tables, so an affected table leads straight to the
+dashboards that show its numbers.
+
+| Piece | What it is |
+|---|---|
+| `aflo-metabase` Container App | Metabase, the open-source edition (1 vCPU, 2 GiB). It scales to zero, so the first request after a quiet spell takes about a minute. Datadog's crawl wakes it too. |
+| `metabase` database | On the same Postgres server. Metabase keeps its questions, dashboards and users there. |
+| `metabase` Postgres role | Created by `contoso_dw_bootstrap`. It owns the `metabase` database and can read `contoso_dw.marts`, nothing else. |
+| [`metabase/dashboards.json`](../metabase/dashboards.json) | The three dashboards and their 19 questions: "Store Sales — Today", "Customer Value" and "Pipeline Health". [`scripts/metabase_seed.py`](../scripts/metabase_seed.py) creates them. |
+
+The open-source edition is enough for lineage. The integration's usage analytics
+(who views what) read Metabase's internal usage database, which only Pro and
+Enterprise have, so that part stays empty.
+
+Metabase needs more connections than `Standard_B1ms` allows. B1ms caps
+`max_connections` at 50, and 15 of those are reserved. Run the server on
+`Standard_B2s` with `max_connections` at 200. Its connection pools are capped at 4
+for its own database and 3 for the warehouse.
+
 ## Lineage
 
 | Task or job | Reads | Writes | How it's reported |
@@ -192,6 +215,54 @@ isn't.
 gh variable set ENABLE_DATA_PIPELINE --env azure --repo "$REPO" --body true
 gh variable set ENABLE_ORDER_STREAM --env azure --repo "$REPO" --body true
 azd env get-value DD_POSTGRES_PASSWORD | gh secret set DD_POSTGRES_PASSWORD --env azure --repo "$REPO"
+```
+
+### Metabase
+
+Turn it on with a bigger Postgres server:
+
+```bash
+azd env set ENABLE_METABASE true
+azd env set METABASE_DB_PASSWORD "$(openssl rand -hex 24)"
+azd env set POSTGRES_SKU_NAME Standard_B2s
+azd env set POSTGRES_MAX_CONNECTIONS 200
+azd provision
+```
+
+`contoso_dw_bootstrap` creates the `metabase` role, and Metabase restarts until it
+exists. On an existing deployment the bootstrap has already run, so trigger it again
+once the provision finishes.
+
+Then create the dashboards. On a new Metabase, the script also creates the admin user
+with the email and password you give it:
+
+```bash
+export METABASE_URL="$(azd env get-value metabaseUrl)"
+export METABASE_ADMIN_EMAIL=you@example.com
+export METABASE_ADMIN_PASSWORD='choose-one'
+export METABASE_DB_PASSWORD="$(azd env get-value METABASE_DB_PASSWORD)"
+export CONTOSO_DW_HOST="$(az postgres flexible-server list -g <rg> --query '[0].fullyQualifiedDomainName' -o tsv)"
+python3 scripts/metabase_seed.py seed
+```
+
+It connects `contoso_dw` as the `metabase` role (the `marts` schema only), and
+creates the "Contoso Demo" collection with the three dashboards. It skips anything
+that already exists. After you change the dashboards in Metabase, run
+`python3 scripts/metabase_seed.py export` to write them back to
+`metabase/dashboards.json`.
+
+Last, connect Datadog. In Metabase, create an API key (Admin settings → Authentication
+→ API keys) in the Administrators group. In Datadog, open the Metabase integration
+tile and add the Metabase URL and that key. The dashboards show in lineage after
+Datadog's next crawl.
+
+For the deploy workflow:
+
+```bash
+gh variable set ENABLE_METABASE --env azure --repo "$REPO" --body true
+gh variable set POSTGRES_SKU_NAME --env azure --repo "$REPO" --body Standard_B2s
+gh variable set POSTGRES_MAX_CONNECTIONS --env azure --repo "$REPO" --body 200
+azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --env azure --repo "$REPO"
 ```
 
 ## Check that it works
@@ -450,15 +521,16 @@ docs don't cover Data Observability yet, so try each one before you present it.
 
 John doesn't trigger anything. Use him to close each scenario.
 
-- **In Datadog:** from any of the alerts above, open lineage downstream to the
-  `marts` tables. Those are what his reports read. A table marked affected means a
-  report showing wrong or stale numbers, and the lineage path shows whose issue it is.
-- **Bits AI:** ask Bits Chat which marts tables are affected right now, and which
+- **In Datadog:** from any of the alerts above, open lineage downstream past the
+  `marts` tables to his Metabase dashboards (with `ENABLE_METABASE`). A table marked
+  affected leads to the questions and dashboards showing wrong or stale numbers. For
+  example, `refund_bug` reaches "Revenue by Store" on "Store Sales — Today", and
+  "Stores with Negative Revenue" on "Pipeline Health". The lineage path back up shows
+  whose issue it is.
+- **In Metabase:** open the same dashboard to see what his readers see. "Pipeline
+  Health" shows each mart's age and the stores with negative revenue.
+- **Bits AI:** ask Bits Chat which dashboards read `marts.daily_store_sales`, and which
   monitor alerted first.
-
-With a BI tool connected to Datadog, his dashboards would appear in lineage below the
-marts. Datadog's Metabase integration needs Metabase Pro or Enterprise, so this demo
-doesn't include one.
 
 ### Run sheet
 
@@ -500,6 +572,8 @@ Rough monthly list prices, always on:
 | Storefront and processor (0.25 vCPU, 0.5 GiB each) | $20–30 |
 | Event Hubs Standard, 1 throughput unit | ~$22 |
 | Landing storage account | Cents |
+| `aflo-metabase` (1 vCPU, 2 GiB, scales to zero) | A few dollars, for the hours it's awake; $40–60 if it ran all the time |
+| Postgres `Standard_B2s`, which Metabase needs | About $35 more than B1ms |
 | `contoso_dw` | No extra server. `raw.orders` keeps 14 days of orders, about 400k rows. |
 
 To pause the stream between demos, deactivate the two services' revisions
@@ -508,5 +582,6 @@ keeps a day of orders, so the processor catches up when it comes back.
 
 Turning a switch off later doesn't delete what it created, because the deployment
 is incremental. It only removes the pipeline settings from the Airflow apps. Delete
-the leftover resources by hand: the Agent and stream apps, the Event Hubs namespace,
-the `stdl…` storage account, and the `contoso_dw` database.
+the leftover resources by hand: the Agent, stream and Metabase apps, the Event Hubs
+namespace, the `stdl…` storage account, and the `contoso_dw` and `metabase`
+databases.

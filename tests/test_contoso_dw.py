@@ -268,6 +268,39 @@ def test_bootstrap_reuses_an_existing_role(bootstrap):
     assert "CREATE ROLE datadog LOGIN" not in cursor.executed
 
 
+def test_bootstrap_leaves_metabase_out_unless_asked(bootstrap):
+    conn, cursor = _conn(role_exists=False)
+    bootstrap.setup_warehouse(conn, "contoso_dw", "s3cret")
+    assert not any("metabase" in s for s in cursor.executed if isinstance(s, str))
+
+
+def test_bootstrap_creates_the_metabase_role_with_marts_access_only(bootstrap):
+    conn, cursor = _conn(role_exists=False)
+    bootstrap.setup_warehouse(conn, "contoso_dw", "s3cret", "mb-s3cret")
+
+    plain = [s for s in cursor.executed if isinstance(s, str)]
+    assert "CREATE ROLE metabase LOGIN" in plain
+    assert not any("mb-s3cret" in s for s in plain)
+    passwords = [s.args for s in cursor.executed if isinstance(s, _Composed)]
+    assert (("ident", "metabase"), ("literal", "mb-s3cret")) in passwords
+    # Taking the role comes first: the admin can't hand it the database otherwise.
+    assert plain.index("GRANT metabase TO CURRENT_USER") < plain.index(
+        "ALTER DATABASE metabase OWNER TO metabase"
+    )
+    assert "GRANT SELECT ON ALL TABLES IN SCHEMA marts TO metabase" in plain
+    assert not any(f"SCHEMA {s} TO metabase" in g for s in ("raw", "staging") for g in plain)
+
+
+def test_metabase_database_gets_citext_and_its_public_schema(bootstrap):
+    conn, cursor = _conn(role_exists=True)
+    bootstrap.setup_metabase_database(conn)
+    assert cursor.executed == [
+        "CREATE EXTENSION IF NOT EXISTS citext",
+        "ALTER SCHEMA public OWNER TO metabase",
+    ]
+    assert conn.committed
+
+
 # --- DAG shape (needs Airflow and the common SQL provider) -----------------------
 
 
