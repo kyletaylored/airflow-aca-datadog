@@ -368,6 +368,8 @@ which needs Owner or User Access Administrator. With only Contributor, set
 | `ASSIGN_JOBS_ROLE` | `true` | `false` skips the managed identity's role assignment |
 | `ENABLE_DATA_PIPELINE`, `DD_POSTGRES_PASSWORD` | `false`, _(empty)_ | The optional [data pipeline demo](docs/data-pipeline-demo.md) and the password for its Agent's Postgres role |
 | `ENABLE_ORDER_STREAM` | `false` | The pipeline's optional order stream: a storefront, Event Hubs and an order processor (needs `ENABLE_DATA_PIPELINE`) |
+| `ENABLE_METABASE`, `METABASE_DB_PASSWORD` | `false`, _(empty)_ | The pipeline's optional Metabase, whose dashboards appear in Datadog lineage below the marts, and the password for its Postgres role (needs `ENABLE_DATA_PIPELINE`) |
+| `POSTGRES_MAX_CONNECTIONS` | _(empty)_ | Postgres `max_connections`; empty leaves the server's value. Metabase needs `Standard_B2s` and `200` |
 | `AZURE_LOCATION`, `NAME_PREFIX`, `POSTGRES_*`, `AIRFLOW_ADMIN_*`, `AIRFLOW_SECRET_KEY` | | Airflow deployment settings; see [`infra/main.parameters.json`](infra/main.parameters.json) and the [source repo](https://github.com/hetvip2/airflow-hosted-on-aca#configurable-parameters) |
 
 ### Continuous deployment
@@ -435,7 +437,7 @@ stored in GitHub. It reuses the resource group and azd environment from your fir
    ```
 
    Also copy any other setting you changed from its default, such as
-   `TELEMETRY_SIGNALS`, `NAME_PREFIX`, `POSTGRES_LOCATION` or `POSTGRES_SKU_NAME`. A
+   `TELEMETRY_SIGNALS`, `NAME_PREFIX`, `POSTGRES_LOCATION`, `POSTGRES_SKU_NAME` or `POSTGRES_MAX_CONNECTIONS`. A
    setting left out here falls back to its default on the next deploy, so a server
    you scaled up by hand would be scaled back down.
 

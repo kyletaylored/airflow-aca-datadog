@@ -297,9 +297,9 @@ What's still open against the "done when" lists:
 
 ## Phase 3: the Contoso story, Metabase, and one monitor of each type
 
-**Status:** built except Metabase (see 3e). The narrative, team, scenarios and
-run sheet are in `docs/data-pipeline-demo.md`. Monitors don't record values yet; see
-1d.
+**Status:** built. The narrative, team, scenarios and run sheet are in
+`docs/data-pipeline-demo.md`, and Metabase is in Bicep behind `enableMetabase` (see
+3e). Monitors don't record values yet; see 1d.
 
 ### 3a. Narrative
 
@@ -347,7 +347,7 @@ not performed.
 | 2 | Rajesh | A schema change renames `raw.orders.amount_cents` to `amount_minor`, without updating the staging SQL. | `breaking_schema` (new) | The `staging_orders` task fails, and the Job monitor alerts. Source to Target shows `staging.orders` falling behind `raw.orders`. Column-level lineage shows every downstream column that depends on the renamed one. |
 | 3 | Emily | A batch never gets loaded, and later the volume drops. | `skip_load`, `volume_drop` (exist) | Freshness on `staging.orders` and `marts.daily_store_sales` alerts. DJM shows which run skipped the load. |
 | 4 | Priya | A refund-handling change makes some orders count as negative revenue. | `refund_bug` (new) | The negative-revenue threshold monitor alerts, and the anomaly monitor on total daily revenue flags the dip. |
-| 5 | John | Each upstream issue reaches his reports. | none: a consequence of 1 to 4 | The marts tables his reports read show as affected in lineage, so he can see which numbers are wrong or stale, and whose issue it is. With a Metabase license, his dashboards would appear in lineage below the marts (see 3e). |
+| 5 | John | Each upstream issue reaches his reports. | none: a consequence of 1 to 4 | The marts tables his reports read show as affected in lineage, so he can see which numbers are wrong or stale, and whose issue it is. His Metabase dashboards appear in lineage below the marts (see 3e). |
 
 **Bits AI in each scenario.** Datadog's Bits AI docs don't describe Data Observability
 use yet, so treat these steps as to-verify:
@@ -381,21 +381,22 @@ All of these depend on the open issue in 1d: monitors need to run more than once
   that defaults to `false`, like the other optional pieces.
 - **Metabase's own database:** a new `metabase` database on the same Postgres server.
 - **What it reads:** `contoso_dw`, as a read-only `metabase` role on `marts` only.
-- **Content:** a small seed script that creates two dashboards through Metabase's API:
-  "Store sales" on `daily_store_sales`, and "Customer value" on `customer_value`.
+- **Content:** `scripts/metabase_seed.py` creates three dashboards and 19 questions
+  through Metabase's API, from `metabase/dashboards.json`: "Store Sales — Today",
+  "Customer Value" and "Pipeline Health".
 - **Datadog:** the Metabase integration, which uses the Metabase URL and an API key.
   It adds Metabase logs, and lineage from the marts tables to cards and dashboards.
 
-**Spike result (2026-11-14): on hold until there's a Pro or Enterprise license.**
-Open-source Metabase (`metabase/metabase:v0.65.4.4`) ran on ACA, built by hand, not in
-Bicep. The Datadog tile accepted the API key: its `GET /api/database` calls returned
-200. It then stopped with "Cannot access 'Internal Metabase Database'… ensure you have
-Metabase Pro or Enterprise plan." That database is Metabase's Usage analytics source,
-which only Pro and Enterprise create, so no Postgres grant can supply it. No Metabase
-entities reached the catalog. Self-hosted Pro uses the same image plus a license token
-in `MB_PREMIUM_EMBEDDING_TOKEN`.
+**Spike result (2026-11-14), corrected 2026-11-15: the open-source edition works.**
+Open-source Metabase (`metabase/metabase:v0.65.4.4`) ran on ACA, built by hand at
+first. The Datadog tile accepted the API key, then reported "Cannot access 'Internal
+Metabase Database'… ensure you have Metabase Pro or Enterprise plan." We took that to
+mean the integration needed Pro. It doesn't: that database is only the source for
+Usage analytics. Datadog's Metabase crawler synced the three dashboards and their
+questions anyway, and lineage shows them below the marts. Only usage analytics needs
+Pro, through a license token in `MB_PREMIUM_EMBEDDING_TOKEN`.
 
-What the spike needed on Azure Postgres, for whenever this goes into Bicep:
+What it needs on Azure Postgres (Bicep and `contoso_dw_bootstrap` now do all of it):
 - **`public` schema:** in the `metabase` database it belongs to `azure_pg_admin`, so
   the `metabase` role has to own it, not just the database.
 - **`azure.extensions`:** must allow `CITEXT`, and `citext` has to be created in the
@@ -405,22 +406,18 @@ What the spike needed on Azure Postgres, for whenever this goes into Bicep:
   `MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE=4` and
   `MB_JDBC_DATA_WAREHOUSE_MAX_CONNECTION_POOL_SIZE=3`, and the server is now
   `Standard_B2s`.
-- **`max_connections`:** set by hand to 200. Azure kept the B1ms value of 50 after the
-  SKU change.
+- **`max_connections`:** 200, through the `postgresMaxConnections` parameter. Azure
+  kept the B1ms value of 50 after the SKU change.
 - **`JAVA_OPTS=-Xmx1536m`:** without it, the JVM saw only about 500 MB of the 2 GiB
   container.
 
-**Until then, John's scenario changes.** He owns the `marts` tables and the reports on
-them, and his view is downstream impact on the marts in lineage and monitors. There
-are no dashboard nodes.
-
 ### 3f. Order of work
 
-1. ~~The Metabase spike~~: done; on hold, see 3e.
+1. ~~The Metabase spike~~: done, see 3e.
 2. ~~The two new chaos switches~~: done.
 3. The new monitors: revenue anomaly (29745883) and Source to Target (29745880)
    and the Job monitor (29746396) created.
-4. Metabase in Bicep and the seed script, once there's a license.
+4. ~~Metabase in Bicep and the seed script~~: done.
 5. ~~The narrative, team, scenarios and run sheet~~: done.
 
 ## Rough monthly cost added (centralus, list prices, always-on)
@@ -431,7 +428,8 @@ are no dashboard nodes.
 | `contoso-storefront` + `order-processor` (0.25 vCPU each) | $20–30 |
 | Event Hubs Standard, 1 TU | ~$22 |
 | Postgres | No change (same server); a few hundred MB of storage |
-| `aflo-metabase` (1 vCPU, 2 GiB), phase 3 | $40–60 |
+| `aflo-metabase` (1 vCPU, 2 GiB), phase 3 | A few dollars: it scales to zero. $40–60 if always on |
+| Postgres `Standard_B2s` for Metabase | About $35 more than B1ms |
 
 Scale the two services to 0 replicas between demos to save most of the phase 2
 cost.
