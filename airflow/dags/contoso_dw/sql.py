@@ -239,6 +239,10 @@ ON CONFLICT (order_id) DO NOTHING
 
 # --- contoso_orders: staging ---------------------------------------------------
 
+# In the staging and marts SQL, every SELECT column has an alias matching its
+# INSERT target. OpenLineage's SQL parser names column lineage after the SELECT
+# output, not the INSERT list, so without the aliases a computed column comes out
+# as _0 and Datadog's column lineage stops there.
 STAGING_ORDERS = [
     "TRUNCATE staging.orders",
     """
@@ -249,9 +253,9 @@ STAGING_ORDERS = [
            store,
            channel,
            items,
-           round(amount_cents / 100.0, 2),
+           round(amount_cents / 100.0, 2) AS amount_usd,
            ordered_at,
-           (ordered_at AT TIME ZONE 'UTC')::date
+           (ordered_at AT TIME ZONE 'UTC')::date AS order_date
     FROM raw.orders
     WHERE channel <> 'test'
     """,
@@ -261,7 +265,7 @@ STAGING_CUSTOMERS = [
     "TRUNCATE staging.customers",
     """
     INSERT INTO staging.customers (customer_id, email, region, signed_up_at)
-    SELECT customer_id, lower(trim(email)), region, signed_up_at
+    SELECT customer_id, lower(trim(email)) AS email, region, signed_up_at
     FROM raw.customers
     """,
 ]
@@ -283,13 +287,13 @@ MART_DAILY_STORE_SALES = [
     """
     INSERT INTO marts.daily_store_sales
         (sales_date, store, orders, revenue_usd, last_order_at, updated_at)
-    SELECT order_date, store, count(*),
+    SELECT order_date AS sales_date, store, count(*) AS orders,
            {% if params.refund_bug -%}
-           sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END),
+           sum(CASE WHEN store = 'Denver' THEN -amount_usd ELSE amount_usd END) AS revenue_usd,
            {%- else -%}
-           sum(amount_usd),
+           sum(amount_usd) AS revenue_usd,
            {%- endif %}
-           max(ordered_at), now()
+           max(ordered_at) AS last_order_at, now() AS updated_at
     FROM staging.orders
     GROUP BY order_date, store
     """,
@@ -302,8 +306,9 @@ MART_CUSTOMER_VALUE = [
     """
     INSERT INTO marts.customer_value
         (customer_id, region, orders, revenue_usd, first_order_at, last_order_at, updated_at)
-    SELECT c.customer_id, c.region, count(*), sum(o.amount_usd),
-           min(o.ordered_at), max(o.ordered_at), now()
+    SELECT c.customer_id, c.region, count(*) AS orders, sum(o.amount_usd) AS revenue_usd,
+           min(o.ordered_at) AS first_order_at, max(o.ordered_at) AS last_order_at,
+           now() AS updated_at
     FROM staging.orders AS o
     JOIN staging.customers AS c ON c.customer_id = o.customer_id
     GROUP BY c.customer_id, c.region
@@ -314,7 +319,8 @@ MART_HOURLY_ORDER_VOLUME = [
     "TRUNCATE marts.hourly_order_volume",
     """
     INSERT INTO marts.hourly_order_volume (order_hour, store, orders, updated_at)
-    SELECT date_trunc('hour', ordered_at), store, count(*), now()
+    SELECT date_trunc('hour', ordered_at) AS order_hour, store, count(*) AS orders,
+           now() AS updated_at
     FROM staging.orders
     WHERE ordered_at >= now() - interval '7 days'
     GROUP BY date_trunc('hour', ordered_at), store

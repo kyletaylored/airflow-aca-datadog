@@ -146,7 +146,13 @@ Python, so its operator reports its datasets itself, using the same names as the
 processor and the Postgres provider.
 
 [`tests/test_contoso_dw.py`](../tests/test_contoso_dw.py) checks the SQL rows with
-`openlineage-sql`, the parser Airflow's OpenLineage provider uses.
+`openlineage-sql`, the parser Airflow's OpenLineage provider uses. It checks both
+the tables and the column names.
+
+In the SQL, give every SELECT column an alias that matches its INSERT target. The
+parser names column lineage after the SELECT output and ignores the INSERT column
+list, so an unaliased expression such as `round(amount_cents / 100.0, 2)` shows up
+as `_0`, and the lineage stops there.
 [`tests/test_contoso_stream.py`](../tests/test_contoso_stream.py) checks that the
 processor and the DAG name the landing zone the same way.
 
@@ -404,6 +410,8 @@ docs don't cover Data Observability yet, so try each one before you present it.
      the mart tasks never ran.
   2. Column-level lineage from `raw.orders.amount_cents` shows every downstream
      column that depends on it: what Rajesh should have checked before the rename.
+     It runs through `staging.orders.amount_usd` to `revenue_usd` in
+     `marts.daily_store_sales` and `marts.customer_value`.
 - **Bits AI:** ask Bits Chat what depends on `raw.orders.amount_cents`. Ask Bits Code
   to propose the staging SQL change as a pull request.
 - **The fix (not performed):** Rajesh reverts the rename, or Emily updates the staging
