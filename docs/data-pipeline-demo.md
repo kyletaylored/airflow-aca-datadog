@@ -40,7 +40,7 @@ their part of the pipeline, Datadog alerts, and they find the cause.
   pathway.
 - **Database Monitoring** shows the whole Postgres server: query metrics, samples
   and explain plans for Airflow's own metadata queries and the pipeline's SQL, plus
-  the warehouse's schemas.
+  each database's schemas.
 
 The pipeline doesn't change how Airflow is instrumented. It has two layers, each
 behind its own switch:
@@ -117,11 +117,9 @@ when Datadog's Azure integration is set up. `contoso_dw_bootstrap` gives each of
 those databases the `datadog` schema, the `datadog.explain_statement` function and
 the `pg_stat_statements` extension. The role gets `pg_monitor`, which includes
 the `pg_read_all_settings` and `pg_read_all_stats` that DBM's Postgres 16 setup
-grants. Schema collection is limited to `contoso_dw` (`include_databases`),
-because the collected schemas are also what fills Data Observability's catalog.
-Without the limit, the catalog also lists Airflow's and Metabase's internal
-tables and Azure's `azure_sys`. Schema collection keeps its own default exclude
-list, so the `database_autodiscovery` excludes don't apply to it.
+grants. Data Observability lists only the tables the `datadog` role can `SELECT`,
+so its catalog stays on `contoso_dw`, while Database Monitoring's schemas cover
+every database.
 
 Two of the server settings, `track_activity_query_size` and
 `pg_stat_statements.max`, only apply after Postgres restarts, which Bicep doesn't
