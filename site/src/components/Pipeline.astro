@@ -1,0 +1,43 @@
+---
+// The pipeline diagram, with the steps as a plain list until it loads (and
+// when JavaScript is off). React Flow needs the browser, so it's client:only.
+import type { DiagramMark, NodeId } from "../data/pipeline";
+import { pipelineNodes } from "../data/pipeline";
+import { personaBySlug, personas } from "../data/personas";
+import { allAvatars } from "../lib/avatars";
+import { href } from "../lib/site";
+import PipelineFlow from "./PipelineFlow.tsx";
+
+interface Props {
+  focus?: NodeId[];
+  marks?: DiagramMark[];
+  height?: number;
+  initial?: NodeId;
+}
+
+const { focus = [], marks = [], height = 520, initial } = Astro.props;
+const avatars = allAvatars();
+const people = Object.fromEntries(
+  personas.map((p) => [p.slug, { name: p.name, role: p.role, href: href(`personas/${p.slug}/`) }]),
+);
+---
+
+<PipelineFlow
+  client:only="react"
+  avatars={avatars}
+  people={people}
+  focus={focus}
+  marks={marks}
+  height={height}
+  initial={initial}
+>
+  <ol slot="fallback" class="pipeline-fallback">
+    {
+      pipelineNodes.map((n) => (
+        <li class={focus.length && !focus.includes(n.id) ? "is-dimmed" : undefined}>
+          <strong>{n.title}</strong> · {n.kind} · {personaBySlug[n.owner].name}
+        </li>
+      ))
+    }
+  </ol>
+</PipelineFlow>

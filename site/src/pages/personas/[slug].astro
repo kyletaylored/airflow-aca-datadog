@@ -3,11 +3,14 @@ import { Text } from "@datadog/druids/typography/Text";
 import LessonDone from "../../components/LessonDone.tsx";
 import Rich from "../../components/Rich.astro";
 import LessonNav from "../../components/LessonNav.tsx";
+import MonitorCard from "../../components/MonitorCard.astro";
+import Pipeline from "../../components/Pipeline.astro";
 import Quiz from "../../components/Quiz.tsx";
 import ToolTag from "../../components/ToolTag.astro";
 import Base from "../../layouts/Base.astro";
 import { personas, type Persona } from "../../data/personas";
 import { toolById } from "../../data/tools";
+import { avatarUri } from "../../lib/avatars";
 import { href, lessons } from "../../lib/site";
 
 export function getStaticPaths() {
@@ -23,6 +26,7 @@ const { persona, index } = Astro.props;
 const next = personas[index + 1];
 const prev = personas[index - 1];
 const title = (id: string) => lessons.find((l) => l.id === id)!.title;
+const face = avatarUri(persona.slug);
 ---
 
 <Base title={`${persona.name}, ${persona.role}`} description={persona.summary}>
@@ -34,7 +38,7 @@ const title = (id: string) => lessons.find((l) => l.id === id)!.title;
 
     <article class="module-body">
       <header class="module-head">
-        <span class="avatar avatar-lg" aria-hidden="true">{persona.name[0]}</span>
+        <img class="avatar avatar-lg" src={face} alt={`Illustration of ${persona.name}`} width="72" height="72" />
         <div>
           <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">
             Module {index + 1} of {personas.length}
@@ -58,11 +62,12 @@ const title = (id: string) => lessons.find((l) => l.id === id)!.title;
 
       <section id="tech" class="lesson">
         <Text as="h2" size="lg" weight="bold">2. {title("tech")}</Text>
-        <ul class="tech-list">
+        <ul class="stack-list">
           {
-            persona.tech.map((t) => (
+            persona.stack.map((t) => (
               <li>
-                <Text as="span" weight="bold" isMonospace>
+                <span class="stack-kind">{t.kind}</span>
+                <Text as="span" weight="bold">
                   {t.name}
                 </Text>
                 <Text as="span" variant="secondary">
@@ -72,6 +77,27 @@ const title = (id: string) => lessons.find((l) => l.id === id)!.title;
             ))
           }
         </ul>
+        <Text as="h3" size="md" weight="bold" marginTop="md">Where {persona.name}'s part starts and ends</Text>
+        <dl class="handoff">
+          <dt>Starts</dt>
+          <dd><Rich text={persona.handoff.starts} /></dd>
+          <dt>Ends</dt>
+          <dd><Rich text={persona.handoff.ends} /></dd>
+          <dt>Contract</dt>
+          <dd><Rich text={persona.handoff.contract} /></dd>
+        </dl>
+        {
+          persona.handoff.examples?.map((e) => (
+            <figure class="example">
+              <figcaption>{e.label}</figcaption>
+              <pre><code>{e.code}</code></pre>
+            </figure>
+          ))
+        }
+        <Text as="p" size="sm" variant="secondary">
+          {persona.name}'s steps are lit below. Select any step for what it does and what Datadog watches there.
+        </Text>
+        <Pipeline focus={persona.diagram.focus} height={380} />
         <LessonDone client:only="react" slug={persona.slug} lesson="tech"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
@@ -88,8 +114,12 @@ const title = (id: string) => lessons.find((l) => l.id === id)!.title;
           <Text as="h3" size="md" weight="bold">{persona.problem.title}</Text>
           <Text as="p"><Rich text={persona.problem.story} /></Text>
         </div>
+        <Pipeline focus={persona.diagram.focus} marks={persona.diagram.marks} height={440} initial={persona.diagram.marks[0]?.node} />
         <div class="lab">
           <Text as="p" size="xs" weight="bold" textTransform="uppercase" variant="tertiary">Try it in the demo</Text>
+          {
+            persona.problem.inDemo && <Text as="p"><Rich text={persona.problem.inDemo} /></Text>
+          }
           {
             persona.problem.trigger ? (
               <Text as="p">
@@ -111,16 +141,8 @@ const title = (id: string) => lessons.find((l) => l.id === id)!.title;
 
       <section id="detect" class="lesson">
         <Text as="h2" size="lg" weight="bold">5. {title("detect")}</Text>
-        <ol class="steps">
-          {
-            persona.detect.map((s) => (
-              <li>
-                <ToolTag tool={s.tool} size="xs" />
-                <Text as="p"><Rich text={s.text} /></Text>
-              </li>
-            ))
-          }
-        </ol>
+        <Text as="p"><Rich text={persona.detect.intro} /></Text>
+        {persona.detect.monitors.map((id) => <MonitorCard id={id} />)}
         <LessonDone client:only="react" slug={persona.slug} lesson="detect"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 

@@ -1,0 +1,48 @@
+---
+// One monitor, laid out the way its definition reads in Datadog, with the
+// lesson's sentence above it: "We've made a <type> for <purpose>, by tracking <tracks>."
+import { Text } from "@datadog/druids/typography/Text";
+import { monitors, withArticle } from "../data/monitors";
+import Rich from "./Rich.astro";
+import ToolTag from "./ToolTag.astro";
+
+interface Props {
+  id: string;
+}
+
+const m = monitors[Astro.props.id];
+const kind = `${m.type}${m.detection === "Anomaly detection" ? " with anomaly detection" : ""}`;
+const sentence = `We've made ${withArticle(kind)} for ${m.purpose}, by tracking ${m.tracks}.`;
+---
+
+<div class="monitor">
+  <Text as="p"><Rich text={sentence} /></Text>
+  <article class="monitor-card" aria-label={`Monitor: ${m.name}`}>
+    <header class="monitor-head">
+      <ToolTag tool={m.product} size="xs" />
+      <span class="monitor-kind">{m.type} · {m.measure} · {m.detection}</span>
+    </header>
+    <Text as="h4" weight="bold" className="monitor-name">{m.name}</Text>
+    <dl class="monitor-fields">
+      <dt>Monitors</dt>
+      <dd><code>{m.target}</code></dd>
+      {
+        m.query.map((q) => (
+          <>
+            <dt>{q.label}</dt>
+            <dd>
+              <pre class={`monitor-code monitor-code-${q.lang}`}><code>{q.code}</code></pre>
+            </dd>
+          </>
+        ))
+      }
+      <dt>Alerts when</dt>
+      <dd><Rich text={m.alertWhen} /></dd>
+      <dt>Evaluated over</dt>
+      <dd>{m.window}</dd>
+      <dt>Notification</dt>
+      <dd class="monitor-message"><Rich text={m.message} /></dd>
+    </dl>
+    {m.note && <p class="monitor-note"><Rich text={m.note} /></p>}
+  </article>
+</div>

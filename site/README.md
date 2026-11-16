@@ -14,15 +14,18 @@ that changes `site/`.
 
 ## Edit the content
 
-Everything a reader sees comes from two files:
+Everything a reader sees comes from four files:
 
 | File | Holds |
 |---|---|
-| [`src/data/personas.ts`](src/data/personas.ts) | The five personas: role, stack, responsibilities, the problem, the detect and investigate steps (each tagged with its Datadog tool), the fix, and the quiz |
+| [`src/data/personas.ts`](src/data/personas.ts) | The five personas: role, face, stack, where their part starts and ends, responsibilities, the problem, which steps their diagrams light and mark, the monitors that catch it, the investigation steps, the fix and the quiz |
+| [`src/data/pipeline.ts`](src/data/pipeline.ts) | Every step an order passes through, its owner and what Datadog watches there, drawn as the interactive diagram |
+| [`src/data/monitors.ts`](src/data/monitors.ts) | The monitors the scenarios alert on, as defined in the demo's Datadog org: type, target, query, threshold and message |
 | [`src/data/tools.ts`](src/data/tools.ts) | The six Datadog products: the question each answers, and what it sees in this demo |
 
 The persona content follows "The story" and "Demo scenarios" in
-`docs/data-pipeline-demo.md`; change both together. Table, column and task names
+`docs/data-pipeline-demo.md`, and the stacks and pipeline steps follow the code in
+`services/` and `airflow/dags/`; change them together. Table, column and task names
 in the text (`raw.orders`, `amount_cents`, `contoso_orders`) are set as code
 automatically.
 
@@ -48,6 +51,15 @@ npm run build     # static site in dist/
 - **Theme:** DRUIDS switches on a `light-mode` or `dark-mode` class on `<body>`. The
   layout sets it before the first paint, from the reader's choice or their system
   setting.
+
+## Diagrams and faces
+
+- **The pipeline diagram** is [React Flow](https://reactflow.dev) (`@xyflow/react`,
+  MIT), in `client:only` like the DRUIDS islands. A persona page opens it zoomed on that
+  persona's steps and marks; the rest of the pipeline is a pan away.
+- **The faces** are generated at build time with [DiceBear](https://www.dicebear.com)
+  from each persona's `avatarSeed`. The artwork is "Notionists" by Zoish, under CC0 1.0.
+  Change a seed to get a different face.
 
 Lesson progress and the theme choice are kept in the reader's browser
 (`localStorage`) only.
