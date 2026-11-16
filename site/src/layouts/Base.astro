@@ -1,0 +1,88 @@
+---
+import "@datadog/druids/styles.css";
+import "../styles/site.css";
+import { href } from "../lib/site";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const path = Astro.url.pathname;
+const nav = [
+  { label: "Modules", to: "", also: "personas/" },
+  { label: "Datadog tools", to: "tools/" },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title} · Contoso data pipeline</title>
+    <link rel="icon" href={href("favicon.svg")} type="image/svg+xml" />
+  </head>
+  <body>
+    <script is:inline>
+      // druids themes on a body class; pick it before the first paint.
+      (function () {
+        var saved;
+        try { saved = localStorage.getItem("personas-theme"); } catch (e) {}
+        var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.body.classList.add(dark ? "dark-mode" : "light-mode");
+      })();
+    </script>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href={href()}>
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span>
+            <strong>Contoso data pipeline</strong>
+            <span class="brand-sub">Observability by role</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Site">
+          {
+            nav.map((item) => {
+              const target = href(item.to);
+              const isCurrent =
+                item.to === ""
+                  ? path === target || path === `${target}/` || path.startsWith(href(item.also))
+                  : path.startsWith(target);
+              return (
+                <a href={target} aria-current={isCurrent ? "page" : undefined}>
+                  {item.label}
+                </a>
+              );
+            })
+          }
+          <button class="theme-toggle" type="button" aria-label="Switch light or dark theme">
+            <span class="theme-toggle-label">Theme</span>
+          </button>
+        </nav>
+      </div>
+    </header>
+    <main id="main" class="wrap">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="wrap">
+        Built from the demo in{" "}
+        <a href="https://github.com/kyletaylored/airflow-aca-datadog">kyletaylored/airflow-aca-datadog</a>.
+        Contoso Outfitters is a fictional company. Progress is saved in this browser only.
+      </div>
+    </footer>
+    <script is:inline>
+      document.querySelector(".theme-toggle").addEventListener("click", function () {
+        var dark = !document.body.classList.contains("dark-mode");
+        document.body.classList.toggle("dark-mode", dark);
+        document.body.classList.toggle("light-mode", !dark);
+        try { localStorage.setItem("personas-theme", dark ? "dark" : "light"); } catch (e) {}
+      });
+    </script>
+  </body>
+</html>

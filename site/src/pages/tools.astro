@@ -1,0 +1,52 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import Rich from "../components/Rich.astro";
+import ToolTag from "../components/ToolTag.astro";
+import Base from "../layouts/Base.astro";
+import { personas } from "../data/personas";
+import { tools } from "../data/tools";
+import { href } from "../lib/site";
+---
+
+<Base
+  title="Datadog tools"
+  description="The Datadog products the Contoso scenarios use: the question each one answers and what it sees in the demo."
+>
+  <section class="hero hero-compact">
+    <Text as="h1" size="xxl" weight="bold">The Datadog tools</Text>
+    <Text as="p" size="lg" variant="secondary" className="lede">
+      Six products cover the whole pipeline, from the storefront to the dashboards. Each one answers a different
+      question.
+    </Text>
+  </section>
+  <div class="tool-grid">
+    {
+      tools.map((tool) => {
+        const users = personas.filter((p) => p.tools.includes(tool.id));
+        return (
+          <section class="card tool-card" id={tool.id}>
+            <ToolTag tool={tool.id} size="md" />
+            <Text as="h2" size="lg" weight="bold">
+              {tool.question}
+            </Text>
+            <Text as="p">{tool.summary}</Text>
+            <Text as="p" size="sm" variant="secondary">
+              <strong>In this demo:</strong> <Rich text={tool.inThisDemo} />
+            </Text>
+            <div class="used-by">
+              <Text as="span" size="sm" variant="tertiary" weight="bold">
+                Used by
+              </Text>
+              {users.map((p) => (
+                <a href={href(`personas/${p.slug}/`)}>{p.name}</a>
+              ))}
+            </div>
+            <a class="docs-link" href={tool.docs}>
+              Datadog docs ↗
+            </a>
+          </section>
+        );
+      })
+    }
+  </div>
+</Base>

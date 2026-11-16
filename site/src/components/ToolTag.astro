@@ -1,0 +1,19 @@
+---
+// A product badge with its druids icon. druids icons inject their SVG sprite
+// into `document` when they render, so the badge renders in the browser only;
+// the fallback is the same label as plain text.
+import type { ToolId } from "../data/tools";
+import { toolById } from "../data/tools";
+import ToolBadge from "./ToolBadge.tsx";
+
+interface Props {
+  tool: ToolId;
+  size?: "xs" | "sm" | "md";
+}
+
+const { tool, size = "sm" } = Astro.props;
+---
+
+<ToolBadge client:only="react" tool={tool} size={size}>
+  <span slot="fallback" class={`badge-fallback badge-fallback-${size}`}>{toolById[tool].name}</span>
+</ToolBadge>

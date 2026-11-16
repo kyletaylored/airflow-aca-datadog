@@ -1,0 +1,180 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import LessonDone from "../../components/LessonDone.tsx";
+import Rich from "../../components/Rich.astro";
+import LessonNav from "../../components/LessonNav.tsx";
+import Quiz from "../../components/Quiz.tsx";
+import ToolTag from "../../components/ToolTag.astro";
+import Base from "../../layouts/Base.astro";
+import { personas, type Persona } from "../../data/personas";
+import { toolById } from "../../data/tools";
+import { href, lessons } from "../../lib/site";
+
+export function getStaticPaths() {
+  return personas.map((persona, index) => ({ params: { slug: persona.slug }, props: { persona, index } }));
+}
+
+interface Props {
+  persona: Persona;
+  index: number;
+}
+
+const { persona, index } = Astro.props;
+const next = personas[index + 1];
+const prev = personas[index - 1];
+const title = (id: string) => lessons.find((l) => l.id === id)!.title;
+---
+
+<Base title={`${persona.name}, ${persona.role}`} description={persona.summary}>
+  <a class="back-link" href={href()}>← All modules</a>
+  <div class="module">
+    <aside class="module-aside">
+      <LessonNav client:load slug={persona.slug} />
+    </aside>
+
+    <article class="module-body">
+      <header class="module-head">
+        <span class="avatar avatar-lg" aria-hidden="true">{persona.name[0]}</span>
+        <div>
+          <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">
+            Module {index + 1} of {personas.length}
+          </Text>
+          <Text as="h1" size="xxl" weight="bold">{persona.name}</Text>
+          <Text as="p" size="lg" variant="secondary">{persona.role}</Text>
+        </div>
+      </header>
+
+      <section id="meet" class="lesson">
+        <Text as="h2" size="lg" weight="bold">1. {title("meet")}</Text>
+        <Text as="p"><Rich text={persona.summary} /></Text>
+        <dl class="facts">
+          <dt>Role</dt>
+          <dd>{persona.role}</dd>
+          <dt>Owns</dt>
+          <dd><Rich text={persona.owns} /></dd>
+        </dl>
+        <LessonDone client:only="react" slug={persona.slug} lesson="meet"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="tech" class="lesson">
+        <Text as="h2" size="lg" weight="bold">2. {title("tech")}</Text>
+        <ul class="tech-list">
+          {
+            persona.tech.map((t) => (
+              <li>
+                <Text as="span" weight="bold" isMonospace>
+                  {t.name}
+                </Text>
+                <Text as="span" variant="secondary">
+                  <Rich text={t.detail} />
+                </Text>
+              </li>
+            ))
+          }
+        </ul>
+        <LessonDone client:only="react" slug={persona.slug} lesson="tech"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="responsibilities" class="lesson">
+        <Text as="h2" size="lg" weight="bold">3. {title("responsibilities")}</Text>
+        <ul class="ticks">{persona.responsibilities.map((r) => <li><Rich text={r} /></li>)}</ul>
+        <LessonDone client:only="react" slug={persona.slug} lesson="responsibilities"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="problem" class="lesson">
+        <Text as="h2" size="lg" weight="bold">4. {title("problem")}</Text>
+        <div class="incident">
+          <Text as="p" size="xs" weight="bold" textTransform="uppercase" variant="danger">Incident</Text>
+          <Text as="h3" size="md" weight="bold">{persona.problem.title}</Text>
+          <Text as="p"><Rich text={persona.problem.story} /></Text>
+        </div>
+        <div class="lab">
+          <Text as="p" size="xs" weight="bold" textTransform="uppercase" variant="tertiary">Try it in the demo</Text>
+          {
+            persona.problem.trigger ? (
+              <Text as="p">
+                Trigger <code>contoso_orders</code> with <code>{persona.problem.trigger}</code>.{" "}
+                Wait: <Rich text={persona.problem.wait.charAt(0).toLowerCase() + persona.problem.wait.slice(1)} />.
+              </Text>
+            ) : (
+              <Text as="p">{persona.problem.wait}: start from the alert another scenario raised.</Text>
+            )
+          }
+          <Text as="p" size="sm" variant="secondary">
+            Nothing needs fixing: the next scheduled run, about 15 minutes later, recovers on its own. See the run sheet in
+            <a href="https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md#demo-scenarios">
+              the demo guide</a>.
+          </Text>
+        </div>
+        <LessonDone client:only="react" slug={persona.slug} lesson="problem"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="detect" class="lesson">
+        <Text as="h2" size="lg" weight="bold">5. {title("detect")}</Text>
+        <ol class="steps">
+          {
+            persona.detect.map((s) => (
+              <li>
+                <ToolTag tool={s.tool} size="xs" />
+                <Text as="p"><Rich text={s.text} /></Text>
+              </li>
+            ))
+          }
+        </ol>
+        <LessonDone client:only="react" slug={persona.slug} lesson="detect"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="investigate" class="lesson">
+        <Text as="h2" size="lg" weight="bold">6. {title("investigate")}</Text>
+        <ol class="steps">
+          {
+            persona.investigate.map((s) => (
+              <li>
+                <ToolTag tool={s.tool} size="xs" />
+                <Text as="p"><Rich text={s.text} /></Text>
+              </li>
+            ))
+          }
+        </ol>
+        <div class="bits">
+          <ToolTag tool="bits" size="xs" />
+          <Text as="p"><Rich text={persona.bits} /></Text>
+        </div>
+        <LessonDone client:only="react" slug={persona.slug} lesson="investigate"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="resolve" class="lesson">
+        <Text as="h2" size="lg" weight="bold">7. {title("resolve")}</Text>
+        <Text as="p"><Rich text={persona.resolve} /></Text>
+        <Text as="p" size="sm" variant="secondary" weight="bold" marginTop="md">Tools in this module</Text>
+        <ul class="tool-summary">
+          {
+            persona.tools.map((t) => (
+              <li>
+                <ToolTag tool={t} size="xs" />
+                <Text as="span" variant="secondary">
+                  {toolById[t].question}
+                </Text>
+              </li>
+            ))
+          }
+        </ul>
+        <LessonDone client:only="react" slug={persona.slug} lesson="resolve"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
+      </section>
+
+      <section id="check" class="lesson">
+        <Text as="h2" size="lg" weight="bold">8. {title("check")}</Text>
+        <Quiz client:only="react" slug={persona.slug} questions={persona.quiz}>
+          <ol slot="fallback" class="ticks">
+            {persona.quiz.map((q) => <li><Rich text={q.prompt} /></li>)}
+          </ol>
+        </Quiz>
+      </section>
+
+      <nav class="pager" aria-label="Other modules">
+        {prev ? <a href={href(`personas/${prev.slug}/`)}>← {prev.name}, {prev.role}</a> : <span />}
+        {next ? <a href={href(`personas/${next.slug}/`)}>{next.name}, {next.role} →</a> : <a href={href("tools/")}>The Datadog tools →</a>}
+      </nav>
+    </article>
+  </div>
+</Base>

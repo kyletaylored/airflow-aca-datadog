@@ -1,0 +1,38 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import type { Persona } from "../data/personas";
+import { href } from "../lib/site";
+import ModuleStatus from "./ModuleStatus.tsx";
+import ToolTag from "./ToolTag.astro";
+
+interface Props {
+  persona: Persona;
+  index: number;
+}
+
+const { persona, index } = Astro.props;
+---
+
+<a class="card persona-card" href={href(`personas/${persona.slug}/`)}>
+  <div class="card-top">
+    <span class="avatar" aria-hidden="true">{persona.name[0]}</span>
+    <div>
+      <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
+        Module {index + 1}
+      </Text>
+      <Text as="h3" size="lg" weight="bold">{persona.name} · {persona.role}</Text>
+    </div>
+  </div>
+  <Text as="p" variant="secondary">{persona.owns}.</Text>
+  <div class="card-problem">
+    <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">The problem</Text>
+    <Text as="p" weight="bold">{persona.problem.title}</Text>
+  </div>
+  <div class="badge-row">
+    {persona.tools.map((t) => <ToolTag tool={t} size="xs" />)}
+  </div>
+  <div class="card-foot">
+    <ModuleStatus client:only="react" slug={persona.slug}><span slot="fallback" class="badge-fallback">Not started</span></ModuleStatus>
+    <span class="card-cta">Start module →</span>
+  </div>
+</a>
