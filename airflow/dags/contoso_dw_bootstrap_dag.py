@@ -2,11 +2,13 @@
 
 Creates the medallion schemas and tables (``raw``, ``staging``, ``marts``), seeds
 the customer pool, and creates the read-only ``datadog`` role that the Datadog
-Agent uses for Data Observability. When Metabase is deployed, it also creates the
-``metabase`` role, which owns Metabase's own database and reads the marts. It runs
-once, as soon as it's deployed (``@once``), and is safe to trigger again, for
-example after rotating ``DD_POSTGRES_PASSWORD``, or after turning Metabase on in an
-existing deployment.
+Agent uses for Data Observability and Database Monitoring. In every database on
+the server it adds what Database Monitoring needs: a ``datadog`` schema with the
+explain-plan function, and the ``pg_stat_statements`` extension. When Metabase is
+deployed, it also creates the ``metabase`` role, which owns Metabase's own
+database and reads the marts. It runs once, as soon as it's deployed (``@once``),
+and is safe to trigger again, for example after rotating ``DD_POSTGRES_PASSWORD``,
+or after turning Metabase on in an existing deployment.
 
 The statements run on a raw database cursor rather than through a SQL operator,
 so the role's password never appears in task logs or in OpenLineage's SQL facet.
@@ -78,6 +80,21 @@ def setup_metabase_database(conn) -> None:
     conn.commit()
 
 
+def list_databases(conn) -> list[str]:
+    """The databases on the server that the Agent's Database Monitoring covers."""
+    with conn.cursor() as cur:
+        cur.execute(dw.LIST_DATABASES)
+        return [row[0] for row in cur.fetchall()]
+
+
+def setup_dbm_database(conn) -> None:
+    """Add Database Monitoring's schema, function and extension to ``conn``'s database."""
+    with conn.cursor() as cur:
+        for statement in dw.DBM_DATABASE_SETUP:
+            cur.execute(statement)
+    conn.commit()
+
+
 if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
     with DAG(
         dag_id="contoso_dw_bootstrap",
@@ -110,6 +127,19 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
                 conn = PostgresHook(postgres_conn_id=CONN_ID, database=dw.METABASE_DATABASE).get_conn()
                 try:
                     setup_metabase_database(conn)
+                finally:
+                    conn.close()
+
+            # Last, so the metabase database already belongs to its role.
+            conn = hook.get_conn()
+            try:
+                databases = list_databases(conn)
+            finally:
+                conn.close()
+            for database in databases:
+                conn = PostgresHook(postgres_conn_id=CONN_ID, database=database).get_conn()
+                try:
+                    setup_dbm_database(conn)
                 finally:
                     conn.close()
 

@@ -38,13 +38,16 @@ their part of the pipeline, Datadog alerts, and they find the cause.
   monitors on them, and joins the lineage from the Kafka topic to the marts.
 - **Data Streams Monitoring** shows the storefront → `orders` → order-processor
   pathway.
+- **Database Monitoring** shows the whole Postgres server: query metrics, samples
+  and explain plans for Airflow's own metadata queries and the pipeline's SQL, plus
+  each database's schemas.
 
 The pipeline doesn't change how Airflow is instrumented. It has two layers, each
 behind its own switch:
 
 | Switch | Adds |
 |---|---|
-| `ENABLE_DATA_PIPELINE` | The `contoso_dw` warehouse database, its DAGs, and a Datadog Agent with Data Observability for PostgreSQL. On its own, the DAG makes up its orders. |
+| `ENABLE_DATA_PIPELINE` | The `contoso_dw` warehouse database, its DAGs, and a Datadog Agent with Data Observability and Database Monitoring for PostgreSQL. On its own, the DAG makes up its orders. |
 | `ENABLE_ORDER_STREAM` | The storefront, Event Hubs, the order processor and the ADLS landing zone. The DAG then loads the landed orders instead. It needs `ENABLE_DATA_PIPELINE`. |
 
 ```mermaid
@@ -90,7 +93,8 @@ flowchart LR
 | `contoso_dw` database | On the existing Postgres server, next to Airflow's `airflow` database. It holds the `raw`, `staging` and `marts` schemas (bronze, silver, gold). |
 | `contoso_dw_bootstrap` DAG | Runs once after the deploy. It creates the schemas and tables, seeds 2,000 customers, and creates the read-only `datadog` role that Datadog's [PostgreSQL setup](https://docs.datadoghq.com/data_observability/quality_monitoring/transactional_databases/postgres/) asks for. The statements run on a raw cursor, so the role's password never reaches task logs or OpenLineage. |
 | `contoso_orders` DAG | Every 15 minutes: load orders into `raw`, rebuild `staging`, check it, then rebuild three marts. |
-| `aflo-dd-agent` Container App | A Datadog Agent (7.81 or later) running the Postgres check with `data_observability.enabled`. One replica only, so each monitor runs once. It's also the trace intake for the two stream services. |
+| `aflo-dd-agent` Container App | A Datadog Agent (7.81 or later) running the Postgres check with `data_observability.enabled` and `dbm: true`. One replica only, so each monitor runs once. It's also the trace intake for the two stream services. |
+| Postgres server settings | What [Database Monitoring for Azure](https://docs.datadoghq.com/database_monitoring/setup_postgres/azure/) asks for on Flexible Server: `pg_stat_statements` on `azure.extensions`, `pg_stat_statements.track=ALL`, `pg_stat_statements.max=10000`, `pg_stat_statements.track_utility=off`, `track_activity_query_size=4096` and `track_io_timing=on`. Azure already preloads `pg_stat_statements`. |
 
 **How Airflow gets the warehouse.** `AIRFLOW_CONN_CONTOSO_DW` holds the
 `contoso_dw` connection, and both DAGs exist only when it's set. The connection's
@@ -103,6 +107,30 @@ catalog refer to the same tables.
 environment variables at startup, so the password stays in a Container Apps secret.
 It has internal HTTP ingress on port 8126, which the stream services reach at
 `http://aflo-dd-agent`. Airflow keeps using the managed OTel agent.
+
+**How Database Monitoring is set up.** One Postgres check instance does both jobs.
+It has `dbm: true`, `collect_schemas` and relation metrics for every table, and
+`database_autodiscovery`, so it covers `airflow`, `contoso_dw`, `metabase` and
+`postgres` (not Azure's `azure_maintenance` and `azure_sys`). Its `azure` block
+(`deployment_type: flexible_server`) links the instance to the Azure resource
+when Datadog's Azure integration is set up. `contoso_dw_bootstrap` gives each of
+those databases the `datadog` schema, the `datadog.explain_statement` function and
+the `pg_stat_statements` extension. The role gets `pg_monitor`, which includes
+the `pg_read_all_settings` and `pg_read_all_stats` that DBM's Postgres 16 setup
+grants. Data Observability lists only the tables the `datadog` role can `SELECT`,
+so its catalog stays on `contoso_dw`, while Database Monitoring's schemas cover
+every database.
+
+Two of the server settings, `track_activity_query_size` and
+`pg_stat_statements.max`, only apply after Postgres restarts, which Bicep doesn't
+do. The deploy workflow restarts the server when Azure reports a setting waiting
+for one, which happens once, on the first deploy that sets them. Airflow loses its
+database for a minute or two. After `azd provision` from your machine, restart it
+yourself:
+
+```bash
+az postgres flexible-server restart -g <rg> -n "$(azd env get-value POSTGRES_SERVER_NAME)"
+```
 
 ### The order stream (`ENABLE_ORDER_STREAM`)
 
@@ -278,10 +306,24 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
      error.
    - In **Remote Configuration**, the status shows `Organization enabled: True` and
      `API Key: Authorized`.
-2. **The tables are in the catalog.** Open Data Observability → Catalog, filtered to
+2. **Database Monitoring sees every database.** In the same status output, the
+   `postgres` check lists the databases it discovered. In Datadog, open Database
+   Monitoring → Databases: the server's FQDN shows query metrics and samples, the
+   Explain Plans tab fills in for the pipeline's queries, and the Schemas tab lists
+   the tables of `airflow`, `contoso_dw` and `metabase`. If query metrics stay empty,
+   check that `pg_stat_statements.track` is `ALL` and that the restart above ran:
+
+   ```bash
+   az postgres flexible-server parameter list -g <rg> -s "$(azd env get-value POSTGRES_SERVER_NAME)" \
+     --query "[?isConfigPendingRestart].name"
+   ```
+
+   An existing deployment also needs `contoso_dw_bootstrap` triggered once more
+   after the deploy, so it adds the DBM schema and function to each database.
+3. **The tables are in the catalog.** Open Data Observability → Catalog, filtered to
    PostgreSQL. All the tables should be listed under the server's FQDN. In our deploy
    they showed up within minutes, but Datadog says to allow up to an hour.
-3. **Lineage connects.** Anchor the lineage graph on `raw.orders`. The
+4. **Lineage connects.** Anchor the lineage graph on `raw.orders`. The
    `contoso_orders` tasks should sit between the `raw`, `staging` and `marts` tables,
    with column-level edges. Each table is a single entity that both the Agent and
    Airflow's OpenLineage events report on. With the stream on, `raw.orders` has
@@ -293,7 +335,7 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
    topic, with `contoso-storefront` producing to it. The processor's OpenLineage
    events report another, which feeds the landing zone. Datadog doesn't merge the
    two yet.
-4. **The stream flows.** APM shows `contoso-storefront` (`kafka.produce`) and
+5. **The stream flows.** APM shows `contoso-storefront` (`kafka.produce`) and
    `order-processor` (`kafka.consume`), and Data Streams Monitoring shows the
    pathway between them through `orders`. The processor's log prints
    `landed N orders in orders/dt=…`.
@@ -574,6 +616,7 @@ Rough monthly list prices, always on:
 | Landing storage account | Cents |
 | `aflo-metabase` (1 vCPU, 2 GiB, scales to zero) | A few dollars, for the hours it's awake; $40–60 if it ran all the time |
 | Postgres `Standard_B2s`, which Metabase needs | About $35 more than B1ms |
+| Database Monitoring | Datadog bills it per database host: one here, the Postgres server |
 | `contoso_dw` | No extra server. `raw.orders` keeps 14 days of orders, about 400k rows. |
 
 To pause the stream between demos, deactivate the two services' revisions

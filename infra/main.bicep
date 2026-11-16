@@ -67,7 +67,7 @@ param demoDagSchedule string = '*/5 * * * *'
 @description('Comma-separated OTel signals sent to Datadog via the ACA managed agent: any of traces, metrics, logs.')
 param datadogOtelSignals string = 'traces,metrics,logs'
 
-@description('Deploy the optional demo data pipeline: a contoso_dw database on the Postgres server, the contoso_orders DAGs, and a Datadog Agent that runs Data Observability checks on it. Needs DD_API_KEY and datadogPostgresPassword.')
+@description('Deploy the optional demo data pipeline: a contoso_dw database on the Postgres server, the contoso_orders DAGs, and a Datadog Agent that runs Data Observability checks on it and Database Monitoring on the whole Postgres server. Needs DD_API_KEY and datadogPostgresPassword.')
 @allowed([ 'true', 'false' ])
 param enableDataPipeline string = 'false'
 
@@ -261,20 +261,41 @@ resource pgMbDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-
   dependsOn: [ pgDwDatabase ]
 }
 
-// Metabase's migrations create the citext extension, which Azure only allows
-// once it's on this list. Server settings are applied one at a time.
-resource pgExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (enableMb) {
+// Azure only allows an extension once it's on this list: pg_stat_statements for
+// Datadog Database Monitoring, and citext, which Metabase's migrations create.
+// Server settings are applied one at a time.
+resource pgExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (enablePipeline) {
   parent: postgres
   name: 'azure.extensions'
-  properties: { value: 'CITEXT', source: 'user-override' }
+  properties: { value: enableMb ? 'CITEXT,PG_STAT_STATEMENTS' : 'PG_STAT_STATEMENTS', source: 'user-override' }
   dependsOn: [ pgMbDatabase ]
 }
+
+// Datadog Database Monitoring's settings for Azure Flexible Server (Azure already
+// preloads pg_stat_statements). track_activity_query_size and
+// pg_stat_statements.max only apply after a restart, which Deploy runs when
+// Azure says one is due.
+var dbmServerSettings = [
+  { name: 'pg_stat_statements.track', value: 'ALL' }
+  { name: 'pg_stat_statements.max', value: '10000' }
+  { name: 'pg_stat_statements.track_utility', value: 'off' }
+  { name: 'track_activity_query_size', value: '4096' }
+  { name: 'track_io_timing', value: 'on' }
+]
+
+@batchSize(1)
+resource pgDbmSettings 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = [for setting in dbmServerSettings: if (enablePipeline) {
+  parent: postgres
+  name: setting.name
+  properties: { value: setting.value, source: 'user-override' }
+  dependsOn: [ pgExtensions ]
+}]
 
 resource pgMaxConnections 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (!empty(postgresMaxConnections)) {
   parent: postgres
   name: 'max_connections'
   properties: { value: postgresMaxConnections, source: 'user-override' }
-  dependsOn: [ pgExtensions ]
+  dependsOn: [ pgDbmSettings ]
 }
 
 // Allow other Azure services (the ACA apps) to reach the server.
@@ -638,7 +659,9 @@ resource sampleJob 'Microsoft.App/jobs@2024-03-01' = {
 //
 // Runs the Postgres check with Data Observability on contoso_dw: table metadata
 // for the catalog, plus the data quality monitors, which reach it over Remote
-// Configuration. Exactly one replica, so each monitor runs once. Airflow itself
+// Configuration. The same check runs Database Monitoring (query metrics, samples,
+// explain plans and schemas) on every database on the server, Airflow's own
+// included. Exactly one replica, so each monitor runs once. Airflow itself
 // doesn't use this Agent; it stays on the managed OTel agent. The internal
 // ingress on 8126 is the trace intake for services instrumented with dd-trace.
 
@@ -675,14 +698,32 @@ mkdir -p /etc/datadog-agent/conf.d/postgres.d
 cat > /etc/datadog-agent/conf.d/postgres.d/conf.yaml <<EOF
 init_config:
 instances:
-  - host: ${DD_PG_HOST}
+  - dbm: true
+    host: ${DD_PG_HOST}
     port: 5432
     username: datadog
     password: "${DD_PG_PASSWORD}"
     dbname: ${DD_PG_DBNAME}
     ssl: require
+    # Database Monitoring covers every database on the server (airflow,
+    # contoso_dw, metabase, postgres), each set up by contoso_dw_bootstrap.
+    database_autodiscovery:
+      enabled: true
+      exclude:
+        - template0
+        - template1
+        - azure_maintenance
+        - azure_sys
+    collect_schemas:
+      enabled: true
+    relations:
+      - relation_regex: '.*'
+    # Lists only the tables the datadog role can SELECT: contoso_dw's.
     data_observability:
       enabled: true
+    azure:
+      deployment_type: flexible_server
+      fully_qualified_domain_name: ${DD_PG_HOST}
     tags:
       - "env:${DD_ENV}"
 EOF
@@ -938,6 +979,7 @@ output airflowIdentityPrincipalId string = identity.properties.principalId
 output jobsRoleAssigned bool = assignJobsRole == 'true'
 output datadogEnabled bool = enableDatadog
 output dataPipelineEnabled bool = enablePipeline
+output postgresServerName string = postgres.name
 output orderStreamEnabled bool = enableStream
 output metabaseUrl string = enableMb ? 'https://${metabase!.properties.configuration.ingress.fqdn}' : ''
 // If assignJobsRole=false, an admin (Owner/User Access Administrator) grants the

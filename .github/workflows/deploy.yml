@@ -187,6 +187,22 @@ jobs:
             azd hooks run postprovision --no-prompt
           fi
 
+      - name: Restart Postgres if a server setting is waiting for it
+        # Some settings (Database Monitoring's track_activity_query_size and
+        # pg_stat_statements.max) only apply after a restart, which Bicep
+        # doesn't do. Airflow loses its database for a minute or two, once.
+        if: needs.plan.outputs.target == 'infra'
+        run: |
+          server="$(azd env get-value POSTGRES_SERVER_NAME)"
+          pending="$(az postgres flexible-server parameter list -g "$AZURE_RESOURCE_GROUP" -s "$server" \
+            --query "[?isConfigPendingRestart].name" -o tsv | tr '\n' ' ')"
+          if [ -z "$pending" ]; then
+            echo "No setting on $server is waiting for a restart."
+            exit 0
+          fi
+          echo "Restarting $server for: $pending"
+          az postgres flexible-server restart -g "$AZURE_RESOURCE_GROUP" -n "$server" -o none
+
       - name: Restart the stream services
         # They read their code from the share only at startup.
         if: needs.plan.outputs.services_changed == 'true' && vars.ENABLE_ORDER_STREAM == 'true'

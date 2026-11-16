@@ -117,6 +117,10 @@ def datadog_grants(database: str) -> list[str]:
 
     Follows Datadog's PostgreSQL setup: pg_monitor, pg_stat_database, and SELECT
     on every table in the medallion schemas, including tables created later.
+    pg_monitor also covers Database Monitoring's pg_read_all_settings and
+    pg_read_all_stats. Data Observability lists only the tables the role can
+    SELECT, so its catalog stays on these schemas while Database Monitoring
+    covers every database.
     """
     grants = [
         f"GRANT pg_monitor TO {DATADOG_ROLE}",
@@ -131,6 +135,52 @@ def datadog_grants(database: str) -> list[str]:
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {DATADOG_ROLE}",
         ]
     return grants
+
+
+# Database Monitoring, which the Agent runs on every database on the server: the
+# databases it connects to, and which are left out.
+LIST_DATABASES = """
+    SELECT datname FROM pg_database
+    WHERE datallowconn AND NOT datistemplate
+      AND datname NOT IN ('azure_maintenance', 'azure_sys')
+    ORDER BY datname
+"""
+
+# Run in each of those databases, following Datadog's DBM setup for Azure. The
+# Agent explains query samples through datadog.explain_statement, which runs as
+# its owner (the admin), so the datadog role can explain queries on tables it
+# can't read. pg_stat_statements is on the server's azure.extensions list, which
+# Bicep sets. The role's cluster-wide grants (pg_monitor) are in datadog_grants.
+DBM_DATABASE_SETUP = [
+    "CREATE SCHEMA IF NOT EXISTS datadog",
+    f"GRANT USAGE ON SCHEMA datadog TO {DATADOG_ROLE}",
+    f"GRANT USAGE ON SCHEMA public TO {DATADOG_ROLE}",
+    "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+    """
+    CREATE OR REPLACE FUNCTION datadog.explain_statement(
+        l_query TEXT,
+        OUT explain JSON
+    )
+    RETURNS SETOF JSON AS
+    $$
+    DECLARE
+    curs REFCURSOR;
+    plan JSON;
+
+    BEGIN
+        SET TRANSACTION READ ONLY;
+
+        OPEN curs FOR EXECUTE pg_catalog.concat('EXPLAIN (FORMAT JSON) ', l_query);
+        FETCH curs INTO plan;
+        CLOSE curs;
+        RETURN QUERY SELECT plan;
+    END;
+    $$
+    LANGUAGE 'plpgsql'
+    RETURNS NULL ON NULL INPUT
+    SECURITY DEFINER
+    """,
+]
 
 
 METABASE_ROLE = "metabase"

@@ -301,6 +301,27 @@ def test_metabase_database_gets_citext_and_its_public_schema(bootstrap):
     assert conn.committed
 
 
+def test_dbm_setup_follows_datadogs_azure_steps(bootstrap):
+    conn, cursor = _conn(role_exists=True)
+    bootstrap.setup_dbm_database(conn)
+    assert cursor.executed[:4] == [
+        "CREATE SCHEMA IF NOT EXISTS datadog",
+        "GRANT USAGE ON SCHEMA datadog TO datadog",
+        "GRANT USAGE ON SCHEMA public TO datadog",
+        "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+    ]
+    (function,) = cursor.executed[4:]
+    assert "CREATE OR REPLACE FUNCTION datadog.explain_statement(" in function
+    assert "SET TRANSACTION READ ONLY" in function
+    assert "SECURITY DEFINER" in function
+    assert conn.committed
+
+
+def test_dbm_covers_every_database_but_azures_own():
+    assert "datallowconn AND NOT datistemplate" in dw.LIST_DATABASES
+    assert "NOT IN ('azure_maintenance', 'azure_sys')" in dw.LIST_DATABASES
+
+
 # --- DAG shape (needs Airflow and the common SQL provider) -----------------------
 
 
