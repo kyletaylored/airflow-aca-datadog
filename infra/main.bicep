@@ -714,14 +714,12 @@ instances:
         - template1
         - azure_maintenance
         - azure_sys
-    # The schemas also fill Data Observability's catalog, so only the
-    # warehouse's. Query metrics, samples and plans still cover every database.
     collect_schemas:
       enabled: true
-      include_databases:
-        - '^${DD_PG_DBNAME}$'
     relations:
       - relation_regex: '.*'
+    # Runs the data quality monitors' queries, which the datadog role's
+    # SELECT grants on contoso_dw allow.
     data_observability:
       enabled: true
     azure:

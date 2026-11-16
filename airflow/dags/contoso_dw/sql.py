@@ -118,8 +118,8 @@ def datadog_grants(database: str) -> list[str]:
     Follows Datadog's PostgreSQL setup: pg_monitor, pg_stat_database, and SELECT
     on every table in the medallion schemas, including tables created later.
     pg_monitor also covers Database Monitoring's pg_read_all_settings and
-    pg_read_all_stats. The catalog comes from the Agent's schema collection,
-    which the Agent config limits to this database.
+    pg_read_all_stats. The SELECT grants are what the data quality monitors'
+    queries need; the catalog itself lists every database on the server.
     """
     grants = [
         f"GRANT pg_monitor TO {DATADOG_ROLE}",
