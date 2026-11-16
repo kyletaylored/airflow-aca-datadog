@@ -245,20 +245,14 @@
   }
   .avatar {
     flex: none;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
+    display: block;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
-    background: var(--ui-status-in-progress-soft);
-    color: var(--ui-text);
-    font-weight: 700;
-    font-size: 18px;
   }
   .avatar-lg {
-    width: 64px;
-    height: 64px;
-    font-size: 26px;
+    width: 72px;
+    height: 72px;
   }
   .card-problem {
     padding: 10px 12px;
@@ -663,5 +657,290 @@
   .quiz-question label,
   .quiz-question label * {
     white-space: normal;
+  }
+}
+
+@layer site {
+  /* Stack and hand-off */
+  .stack-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .stack-list li {
+    display: grid;
+    /* Fixed columns, so every row lines up and long names wrap. */
+    grid-template-columns: 145px 210px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--ui-background-secondary);
+    font-size: 14px;
+  }
+  .stack-list li > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .stack-kind {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ui-text-tertiary);
+  }
+  .handoff {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    margin: 0;
+    font-size: 14px;
+  }
+  .handoff dt {
+    font-weight: 700;
+    color: var(--ui-text-secondary);
+  }
+  .handoff dd {
+    margin: 0;
+  }
+  .example {
+    margin: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .example figcaption {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ui-text-secondary);
+  }
+  .example pre,
+  .monitor-code {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--ui-code-background);
+    color: var(--ui-code-text);
+    font-family: "Roboto Mono", Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    overflow-x: auto;
+  }
+  .example pre code,
+  .monitor-code code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+    overflow-wrap: normal;
+  }
+
+  /* Pipeline diagram */
+  .pipeline-flow {
+    display: grid;
+    border: 1px solid var(--ui-border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--ui-background);
+  }
+  .pf-canvas {
+    width: 100%;
+    border-bottom: 1px solid var(--ui-border);
+  }
+  .pipeline-flow .react-flow {
+    --xy-background-color: var(--ui-background-secondary);
+    --xy-edge-stroke: var(--ui-text-tertiary);
+    --xy-edge-label-background-color: var(--ui-background);
+    --xy-edge-label-color: var(--ui-text-secondary);
+  }
+  .pf-node {
+    width: 220px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--ui-border);
+    border-left: 4px solid var(--accent);
+    background: var(--ui-background);
+    color: var(--ui-text);
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity 0.2s, box-shadow 0.15s;
+  }
+  .pf-node:hover,
+  .pf-node.is-selected {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .pf-node.is-dimmed {
+    opacity: 0.35;
+  }
+  .pf-node .react-flow__handle {
+    opacity: 0;
+    width: 6px;
+    height: 6px;
+    min-width: 0;
+    min-height: 0;
+    border: 0;
+  }
+  .pf-owner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .pf-owner img {
+    border-radius: 50%;
+  }
+  .pf-title {
+    font-family: "Roboto Mono", Menlo, monospace;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .pf-kind {
+    color: var(--ui-text-secondary);
+  }
+  .pf-watch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .pf-watch span {
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--ui-background-tertiary);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--ui-text-secondary);
+  }
+  .pf-marks {
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .pf-mark {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .pf-mark-problem {
+    background: var(--ui-status-danger-soft);
+    color: var(--ui-status-danger);
+  }
+  .pf-mark-alert {
+    background: var(--ui-status-warning-soft);
+    color: var(--ui-status-warning);
+  }
+  .pf-mark-impact {
+    background: var(--ui-status-other-soft);
+    color: var(--ui-status-other);
+  }
+  .pf-edge.is-dimmed {
+    opacity: 0.3;
+  }
+  .pf-detail {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    min-height: 120px;
+    align-content: start;
+  }
+  .pf-detail-head {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .pf-detail-head img {
+    border-radius: 50%;
+  }
+  .pf-detail-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .pipeline-fallback {
+    margin: 0;
+    padding: 16px 16px 16px 36px;
+    display: grid;
+    gap: 4px;
+    font-size: 14px;
+  }
+  .pipeline-fallback .is-dimmed {
+    color: var(--ui-text-tertiary);
+  }
+
+  /* Monitor cards */
+  .monitor {
+    display: grid;
+    gap: 10px;
+  }
+  .monitor + .monitor {
+    margin-top: 8px;
+  }
+  .monitor-card {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid var(--ui-border);
+    border-top: 3px solid var(--ui-status-warning);
+    background: var(--ui-background-secondary);
+  }
+  .monitor-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .monitor-kind {
+    font-size: 12px;
+    color: var(--ui-text-secondary);
+  }
+  .monitor-name {
+    font-family: "Roboto Mono", Menlo, monospace;
+    font-size: 14px;
+  }
+  .monitor-fields {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 8px 16px;
+    margin: 0;
+    font-size: 14px;
+  }
+  .monitor-fields dt {
+    font-weight: 700;
+    color: var(--ui-text-secondary);
+  }
+  .monitor-fields dd {
+    margin: 0;
+    min-width: 0;
+  }
+  .monitor-message {
+    padding-left: 10px;
+    border-left: 3px solid var(--ui-border);
+    color: var(--ui-text-secondary);
+  }
+  .monitor-note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ui-text-secondary);
+  }
+
+  @media (max-width: 700px) {
+    .stack-list li {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+    .monitor-fields,
+    .handoff {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+    .monitor-fields dd,
+    .handoff dd {
+      margin-bottom: 8px;
+    }
   }
 }

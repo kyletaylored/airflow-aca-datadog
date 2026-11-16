@@ -1,6 +1,7 @@
 ---
 import { Text } from "@datadog/druids/typography/Text";
 import type { Persona } from "../data/personas";
+import { avatarUri } from "../lib/avatars";
 import { href } from "../lib/site";
 import ModuleStatus from "./ModuleStatus.tsx";
 import ToolTag from "./ToolTag.astro";
@@ -15,7 +16,7 @@ const { persona, index } = Astro.props;
 
 <a class="card persona-card" href={href(`personas/${persona.slug}/`)}>
   <div class="card-top">
-    <span class="avatar" aria-hidden="true">{persona.name[0]}</span>
+    <img class="avatar" src={avatarUri(persona.slug)} alt="" width="48" height="48" />
     <div>
       <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
         Module {index + 1}

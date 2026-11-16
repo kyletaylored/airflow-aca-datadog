@@ -1,13 +1,13 @@
 ---
 // Plain text with table, column and task names (raw.orders, amount_cents,
-// contoso_orders) set as code, so the content file can stay plain strings.
+// contoso_orders) set as code, so the content files can stay plain strings.
+import { splitNames } from "../lib/rich";
+
 interface Props {
   text: string;
 }
 
-const { text } = Astro.props;
-const pattern = /(\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?:\.[a-z0-9_]+)*\b|\b[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)?\b)/g;
-const parts = text.split(pattern);
+const parts = splitNames(Astro.props.text);
 ---
 
 {parts.map((part, i) => (i % 2 === 1 ? <code>{part}</code> : part))}

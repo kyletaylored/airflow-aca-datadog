@@ -1,22 +1,12 @@
 ---
 import { Text } from "@datadog/druids/typography/Text";
 import PersonaCard from "../components/PersonaCard.astro";
+import Pipeline from "../components/Pipeline.astro";
 import Stats from "../components/Stats.tsx";
 import Base from "../layouts/Base.astro";
 import { personas } from "../data/personas";
 import { tools } from "../data/tools";
 import { href } from "../lib/site";
-
-// The pipeline, left to right, and who owns each stage.
-const stages = [
-  { name: "Storefront", detail: "Takes orders", owner: "Dave" },
-  { name: "Event Hubs", detail: "orders topic", owner: "Dave" },
-  { name: "Landing zone", detail: "ADLS batches", owner: "Dave" },
-  { name: "raw → staging", detail: "Airflow loads", owner: "Emily" },
-  { name: "Schemas", detail: "Warehouse design", owner: "Rajesh" },
-  { name: "marts", detail: "Business metrics", owner: "Priya" },
-  { name: "Dashboards", detail: "Metabase reports", owner: "John" },
-];
 
 const stats = [
   { value: personas.length, label: "Personas" },
@@ -48,18 +38,14 @@ const stats = [
   </section>
 
   <section aria-labelledby="pipeline-heading">
-    <Text as="h2" size="lg" weight="bold" id="pipeline-heading">The pipeline and its owners</Text>
-    <ol class="pipeline">
-      {
-        stages.map((stage) => (
-          <li>
-            <strong>{stage.name}</strong>
-            <span>{stage.detail}</span>
-            <span class="owner">{stage.owner}</span>
-          </li>
-        ))
-      }
-    </ol>
+    <div class="section-head">
+      <Text as="h2" size="lg" weight="bold" id="pipeline-heading">How an order moves, and who owns each step</Text>
+      <Text as="p" variant="secondary">
+        An order reaches the dashboards within about 20 minutes of checkout. Each step is colored by its owner, and tagged with the Datadog
+        products that watch it. Select a step for the details.
+      </Text>
+    </div>
+    <Pipeline height={600} initial="storefront" />
   </section>
 
   <section aria-labelledby="modules-heading">
