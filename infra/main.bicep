@@ -718,7 +718,8 @@ instances:
       enabled: true
     relations:
       - relation_regex: '.*'
-    # Lists only the tables the datadog role can SELECT: contoso_dw's.
+    # Runs the data quality monitors' queries, which the datadog role's
+    # SELECT grants on contoso_dw allow.
     data_observability:
       enabled: true
     azure:

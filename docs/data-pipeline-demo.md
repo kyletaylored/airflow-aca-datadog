@@ -117,9 +117,12 @@ when Datadog's Azure integration is set up. `contoso_dw_bootstrap` gives each of
 those databases the `datadog` schema, the `datadog.explain_statement` function and
 the `pg_stat_statements` extension. The role gets `pg_monitor`, which includes
 the `pg_read_all_settings` and `pg_read_all_stats` that DBM's Postgres 16 setup
-grants. Data Observability lists only the tables the `datadog` role can `SELECT`,
-so its catalog stays on `contoso_dw`, while Database Monitoring's schemas cover
-every database.
+grants. Database Monitoring's schemas cover every database. So does Data
+Observability's catalog: besides `contoso_dw`, it lists Airflow's and Metabase's
+internal tables and Azure's `azure_sys`, though the `datadog` role can't `SELECT`
+from them.
+Limiting `collect_schemas` to `contoso_dw` doesn't change that, so filter the
+catalog to `contoso_dw` in Datadog.
 
 Two of the server settings, `track_activity_query_size` and
 `pg_stat_statements.max`, only apply after Postgres restarts, which Bicep doesn't
@@ -321,7 +324,8 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
    An existing deployment also needs `contoso_dw_bootstrap` triggered once more
    after the deploy, so it adds the DBM schema and function to each database.
 3. **The tables are in the catalog.** Open Data Observability → Catalog, filtered to
-   PostgreSQL. All the tables should be listed under the server's FQDN. In our deploy
+   PostgreSQL and the `contoso_dw` database (the catalog also lists the server's
+   other databases). All the tables should be listed under the server's FQDN. In our deploy
    they showed up within minutes, but Datadog says to allow up to an hour.
 4. **Lineage connects.** Anchor the lineage graph on `raw.orders`. The
    `contoso_orders` tasks should sit between the `raw`, `staging` and `marts` tables,
