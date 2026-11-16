@@ -1,0 +1,86 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import PersonaCard from "../components/PersonaCard.astro";
+import Stats from "../components/Stats.tsx";
+import Base from "../layouts/Base.astro";
+import { personas } from "../data/personas";
+import { tools } from "../data/tools";
+import { href } from "../lib/site";
+
+// The pipeline, left to right, and who owns each stage.
+const stages = [
+  { name: "Storefront", detail: "Takes orders", owner: "Dave" },
+  { name: "Event Hubs", detail: "orders topic", owner: "Dave" },
+  { name: "Landing zone", detail: "ADLS batches", owner: "Dave" },
+  { name: "raw → staging", detail: "Airflow loads", owner: "Emily" },
+  { name: "Schemas", detail: "Warehouse design", owner: "Rajesh" },
+  { name: "marts", detail: "Business metrics", owner: "Priya" },
+  { name: "Dashboards", detail: "Metabase reports", owner: "John" },
+];
+
+const stats = [
+  { value: personas.length, label: "Personas" },
+  { value: tools.length, label: "Datadog tools" },
+  { value: 15, unit: "min", label: "Between pipeline runs" },
+];
+---
+
+<Base
+  title="Modules"
+  description="Five people run Contoso's order pipeline. Learn what each one owns, what breaks, and the Datadog tools that find the cause."
+>
+  <section class="hero">
+    <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">
+      Contoso Outfitters · Data pipeline
+    </Text>
+    <Text as="h1" size="xxl" weight="bold">Who finds the problem, and how</Text>
+    <Text as="p" size="lg" variant="secondary" className="lede">
+      Contoso sells outdoor and travel gear online and in seven stores. Every order flows from the storefront,
+      through Event Hubs and a landing zone, into a Postgres warehouse that Airflow builds every 15 minutes. Five
+      people run that pipeline. Each module follows one of them: what they own, what breaks in their part, and the
+      Datadog tools that catch it and find the cause.
+    </Text>
+    <Stats client:only="react" stats={stats}>
+      <ul slot="fallback" class="stats stats-fallback">
+        {stats.map((s) => <li><strong>{s.value}{s.unit ? ` ${s.unit}` : ""}</strong> {s.label}</li>)}
+      </ul>
+    </Stats>
+  </section>
+
+  <section aria-labelledby="pipeline-heading">
+    <Text as="h2" size="lg" weight="bold" id="pipeline-heading">The pipeline and its owners</Text>
+    <ol class="pipeline">
+      {
+        stages.map((stage) => (
+          <li>
+            <strong>{stage.name}</strong>
+            <span>{stage.detail}</span>
+            <span class="owner">{stage.owner}</span>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section aria-labelledby="modules-heading">
+    <div class="section-head">
+      <Text as="h2" size="lg" weight="bold" id="modules-heading">Modules</Text>
+      <Text as="p" variant="secondary">
+        Each takes about 10 minutes. Start anywhere; John's module ties the others together.
+      </Text>
+    </div>
+    <div class="card-grid">
+      {personas.map((persona, index) => <PersonaCard persona={persona} index={index} />)}
+    </div>
+  </section>
+
+  <section class="callout-band">
+    <div>
+      <Text as="h2" size="lg" weight="bold">New to these Datadog products?</Text>
+      <Text as="p" variant="secondary">
+        One page on each tool: the question it answers, and what it sees in this demo.
+      </Text>
+    </div>
+    <a class="button-link" href={href("tools/")}>See the tools</a>
+  </section>
+</Base>

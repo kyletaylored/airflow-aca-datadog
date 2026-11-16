@@ -352,6 +352,11 @@ The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog
 data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only
 when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
 
+The [persona site](https://kyletaylored.com/airflow-aca-datadog/) teaches the same
+pipeline by role: one module for each of the five people who run it, with the
+problem in their part and the Datadog tools that find the cause. Its source is in
+[`site/`](site/).
+
 ---
 
 ## Deployment
@@ -530,6 +535,7 @@ Things to know:
 ├─ infra/main.bicep         # ACA environment + managed OTel agent, Airflow apps, sample job
 ├─ docs/                    # the optional data pipeline demo
 ├─ services/                # storefront and order processor for its order stream
+├─ site/                    # persona site (Astro + DRUIDS), published to GitHub Pages
 ├─ scripts/upload-dags.*    # postprovision: upload DAGs and plugins to the share
 └─ tests/                   # offline unit tests (no Azure, no Datadog)
 ```
