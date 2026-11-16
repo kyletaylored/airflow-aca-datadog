@@ -671,13 +671,18 @@
   }
   .stack-list li {
     display: grid;
-    grid-template-columns: 130px minmax(180px, max-content) 1fr;
+    /* Fixed columns, so every row lines up and long names wrap. */
+    grid-template-columns: 145px 210px minmax(0, 1fr);
     gap: 12px;
     align-items: baseline;
     padding: 10px 12px;
     border-radius: 8px;
     background: var(--ui-background-secondary);
     font-size: 14px;
+  }
+  .stack-list li > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .stack-kind {
     font-size: 11px;
