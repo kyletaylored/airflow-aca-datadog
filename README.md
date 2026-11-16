@@ -118,18 +118,15 @@ Telemetry reaches Datadog by two independent paths:
 
 ## Minimum configuration
 
-There are two independent pieces, and each one is only environment variables. The
-official `apache/airflow` 3.x image already includes the OpenLineage provider and
-the OpenTelemetry SDK, so neither needs an install. **Start with Data Jobs
-Monitoring:** on its own it gives you a trace per DAG run in Datadog.
+Two steps, and both are configuration only: no code changes, no custom image, no
+Datadog Agent. Each step works on its own. **Start with step 1:** it covers what
+pipeline owners ask about, and it already gives you a trace per DAG run.
 
-| | Data Jobs Monitoring (OpenLineage) | APM (OpenTelemetry) |
-|---|---|---|
-| **You get** | Every DAG run and task run: status, duration, retries, failures, and dataset lineage. Also a trace per DAG run (DAG → tasks → jobs they launched). | Airflow's internals: the scheduler and the task process, plus calls tasks make (here, Azure ARM). Optionally Airflow metrics and logs carrying trace ids. |
-| **Set it on** | Scheduler and wherever tasks run (workers; with `LocalExecutor`, the scheduler) | Each component you want to see |
-| **Needs** | A Datadog API key | An OTLP endpoint that forwards to Datadog |
+### Step 1: Data Jobs Monitoring
 
-**Data Jobs Monitoring.** Set these four variables ([Datadog guide](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/)):
+Set four environment variables on the scheduler, and on your workers if you have
+any. With `LocalExecutor`, tasks run in the scheduler, so the scheduler alone is
+enough ([Datadog guide](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/)).
 
 ```bash
 OPENLINEAGE__TRANSPORT__TYPE=datadog
@@ -138,36 +135,67 @@ DD_SITE=datadoghq.com            # your Datadog site
 OPENLINEAGE_NAMESPACE=<env>      # shows up as the env tag
 ```
 
-The `datadog` transport needs `apache-airflow-providers-openlineage` 2.7.3+ (the
-3.x image's is newer). On an older provider, set
-`OPENLINEAGE_URL=https://data-obs-intake.<site>` and `OPENLINEAGE_API_KEY=<key>`
-instead of the first three.
+**You get:** every DAG run and task run in Data Jobs Monitoring, with status,
+duration, retries, errors and dataset lineage, plus a trace per DAG run.
 
-**APM.** Turn on Airflow's native tracing and name each component:
+### Step 2: APM
+
+**2a. Send the environment's telemetry to Datadog.** Turn on the Container Apps
+environment's
+[managed OpenTelemetry agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
+with a Datadog destination. It's one command:
+
+```bash
+az containerapp env telemetry data-dog set -g <resource-group> -n <environment> \
+  --site datadoghq.com --key <datadog-api-key> --enable-open-telemetry-traces true
+```
+
+**2b. Turn on Airflow's tracing.** Set these on each Airflow app (api-server,
+scheduler, triggerer, dag-processor), with each app's own service name:
 
 ```bash
 AIRFLOW__TRACES__OTEL_ON=True
-OTEL_SERVICE_NAME=airflow-scheduler                # per component
+OTEL_SERVICE_NAME=airflow-scheduler                # per app
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>
 ```
 
-Then give Airflow an OTLP endpoint:
+ACA injects the agent's endpoint into every app. **Don't set any
+`OTEL_EXPORTER_OTLP_*` variable yourself:** if you set even one, ACA stops
+injecting all of them, and nothing is exported. Outside ACA, set
+`OTEL_EXPORTER_OTLP_ENDPOINT` to a Datadog Agent with OTLP ingest turned on (for
+example `http://<agent>:4317`) instead of doing 2a.
 
-- **On Azure Container Apps:** enable the environment's
-  [managed OpenTelemetry agent](https://learn.microsoft.com/azure/container-apps/opentelemetry-agents)
-  with a Datadog destination (site and API key). ACA injects the endpoint into every
-  app. Don't set any `OTEL_EXPORTER_OTLP_*` variable yourself: if you set even one,
-  ACA stops injecting all of them. Extend `OTEL_RESOURCE_ATTRIBUTES` as
-  [Datadog's ACA managed-agent guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/)
-  describes, so Datadog ties each service to its container app:
-  `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`.
-  Keep `deployment.environment=<env>` in the list too: the managed agent sets the
-  Datadog `env` tag only from that key.
-- **Anywhere else:** point `OTEL_EXPORTER_OTLP_ENDPOINT` at a Datadog Agent with
-  OTLP ingest turned on (for example `http://<agent>:4317`).
+**You get:** one APM service per Airflow component, with traces of the scheduler,
+the task process and the triggerer.
 
-Everything else in this repo is optional on top of that: Airflow metrics, logs,
-Azure API spans, and ACA Jobs reporting their own runs.
+### What you don't need
+
+- **No install on Airflow 3.** The official `apache/airflow` 3.x image already
+  includes the OpenLineage provider and the OpenTelemetry SDK. Airflow 2 needs a
+  bit more; see [Airflow 2 and Airflow 3 differences](#airflow-2-and-airflow-3-differences).
+- **No DAG or operator changes.** Both work at the Airflow level.
+- **No Datadog Agent.** Data Jobs Monitoring posts straight to Datadog's intake,
+  and APM uses ACA's managed agent. (The optional
+  [data pipeline demo](docs/data-pipeline-demo.md) adds an Agent for Postgres
+  monitoring, which neither step needs.)
+
+### Optional extras
+
+Everything else in this repo builds on the two steps. Add any of these only when
+you want what it gives you:
+
+| Add | What it gives you | How |
+|---|---|---|
+| Airflow metrics | Scheduler heartbeats, executor and pool slots, DAG parse times | `AIRFLOW__METRICS__OTEL_ON=True`, and `--enable-open-telemetry-metrics true` in 2a |
+| Logs with trace ids | Airflow's logs in Datadog, linked to their traces | The log handler in [`otel_logging_config.py`](airflow/plugins/otel_logging_config.py) (see [Additional instrumentation](#additional-instrumentation)) |
+| Azure API spans | A span for each Azure call a task makes, with latency and status | `opentelemetry-instrumentation-requests` (see [Additional instrumentation](#additional-instrumentation)) |
+| ACA Job runs under their task | Each job run nested under the Airflow task that started it in Data Jobs Monitoring, with its datasets in the lineage | This repo's ACA Jobs operator passes the parent IDs; the job sends its own OpenLineage events |
+| Services linked to their container apps | Datadog ties each APM service to its container app | Extend `OTEL_RESOURCE_ATTRIBUTES` as [Datadog's ACA guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/) describes: `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`. Keep `deployment.environment=<env>` too: the managed agent sets Datadog's `env` tag only from that key. |
+
+The `datadog` OpenLineage transport needs `apache-airflow-providers-openlineage`
+2.7.3+ (the Airflow 3 image's is newer). On an older provider, replace the first
+three variables of step 1 with `OPENLINEAGE_URL=https://data-obs-intake.<site>` and
+`OPENLINEAGE_API_KEY=<key>`.
 
 ---
 
