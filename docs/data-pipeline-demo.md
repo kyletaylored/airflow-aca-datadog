@@ -129,7 +129,7 @@ database for a minute or two. After `azd provision` from your machine, restart i
 yourself:
 
 ```bash
-az postgres flexible-server restart -g <rg> -n "$(azd env get-value POSTGRES_SERVER_NAME)"
+az postgres flexible-server restart -g <rg> -n "$(azd env get-value postgresServerName)"
 ```
 
 ### The order stream (`ENABLE_ORDER_STREAM`)
@@ -314,7 +314,7 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
    check that `pg_stat_statements.track` is `ALL` and that the restart above ran:
 
    ```bash
-   az postgres flexible-server parameter list -g <rg> -s "$(azd env get-value POSTGRES_SERVER_NAME)" \
+   az postgres flexible-server parameter list -g <rg> -s "$(azd env get-value postgresServerName)" \
      --query "[?isConfigPendingRestart].name"
    ```
 

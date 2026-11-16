@@ -193,7 +193,9 @@ jobs:
         # doesn't do. Airflow loses its database for a minute or two, once.
         if: needs.plan.outputs.target == 'infra'
         run: |
-          server="$(azd env get-value POSTGRES_SERVER_NAME)"
+          set -o pipefail
+          # azd keeps Bicep outputs under their camelCase names.
+          server="$(azd env get-value postgresServerName)"
           pending="$(az postgres flexible-server parameter list -g "$AZURE_RESOURCE_GROUP" -s "$server" \
             --query "[?isConfigPendingRestart].name" -o tsv | tr '\n' ' ')"
           if [ -z "$pending" ]; then
