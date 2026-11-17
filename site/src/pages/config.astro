@@ -1,0 +1,70 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import Rich from "../components/Rich.astro";
+import ToolTag from "../components/ToolTag.astro";
+import Base from "../layouts/Base.astro";
+import { notNeeded, configGroups, sourceUrl } from "../data/config";
+
+let n = 0;
+const numbered = configGroups.map((g) => ({ ...g, steps: g.steps.map((s) => ({ ...s, n: ++n })) }));
+---
+
+<Base
+  title="Config"
+  description="What each Datadog product needs in this demo: Data Jobs Monitoring and APM for Airflow on Azure Container Apps, then Data Observability, Database Monitoring and Data Streams Monitoring for the warehouse and order stream."
+>
+  <section class="hero hero-compact">
+    <Text as="h1" size="xxl" weight="bold">Config</Text>
+    <Text as="p" size="lg" variant="secondary" className="lede">
+      Each product needs a few settings. Start with Data Jobs Monitoring, and add the others when you need what they
+      show. Values in angle brackets are your own.
+    </Text>
+    <ol class="config-index">
+      {numbered.flatMap((g) => g.steps).map((s) => <li><a href={`#${s.id}`}>{s.name}</a></li>)}
+    </ol>
+  </section>
+
+  {
+    numbered.map((group) => (
+      <section class="config-group">
+        <div class="section-head">
+          <Text as="h2" size="lg" weight="bold">{group.title}</Text>
+          <Text as="p" variant="secondary">{group.intro}</Text>
+        </div>
+        <div class="config-steps">
+          {group.steps.map((step) => (
+            <article class="card config-card" id={step.id}>
+              <div class="card-header">
+                <span class="config-number">{step.n}</span>
+                {step.tool ? <ToolTag tool={step.tool} size="md" /> : <Text as="span" weight="bold">{step.name}</Text>}
+                <a class="docs-link" href={step.docs}>Datadog docs ↗</a>
+              </div>
+              <div class="card-body">
+                <Text as="p" weight="bold"><Rich text={step.gives} /></Text>
+                <Text as="p" size="sm" variant="secondary"><Rich text={step.where} /></Text>
+                {step.snippets.map((s) => (
+                  <figure class="example">
+                    <figcaption>{s.label}</figcaption>
+                    <pre><code>{s.code}</code></pre>
+                  </figure>
+                ))}
+                {step.steps && <ol class="ticks config-clicks">{step.steps.map((t) => <li>{t}</li>)}</ol>}
+                {step.note && <p class="config-note"><Rich text={step.note} /></p>}
+              </div>
+              <div class="card-footer">
+                <Text as="span" size="sm" variant="tertiary">
+                  In this repo: <a href={sourceUrl(step.source.path)}>{step.source.label}</a>
+                </Text>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    ))
+  }
+
+  <section class="callout">
+    <Text as="p" weight="bold">What you don't need</Text>
+    <ul class="ticks">{notNeeded.map((t) => <li>{t}</li>)}</ul>
+  </section>
+</Base>

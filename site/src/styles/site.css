@@ -1278,3 +1278,71 @@
     }
   }
 }
+
+@layer site {
+  /* Config page */
+  .config-index {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: config;
+    font-size: 14px;
+  }
+  .config-index li {
+    counter-increment: config;
+  }
+  .config-index a {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    text-decoration: none;
+  }
+  .config-index a::before {
+    content: counter(config) ". ";
+    color: var(--ui-text-tertiary);
+  }
+  .config-steps {
+    display: grid;
+    gap: 16px;
+  }
+  .config-card {
+    scroll-margin-top: 80px;
+  }
+  .config-card .card-header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .config-card .card-header .docs-link {
+    margin-left: auto;
+  }
+  .config-number {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--ui-background-tertiary);
+    color: var(--ui-text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .config-note {
+    margin: 0;
+    padding-left: 12px;
+    border-left: 3px solid var(--ui-status-warning);
+    font-size: 14px;
+    color: var(--ui-text-secondary);
+  }
+  .config-clicks {
+    margin: 0;
+  }
+  main > .callout {
+    margin-top: 40px;
+  }
+}
+
