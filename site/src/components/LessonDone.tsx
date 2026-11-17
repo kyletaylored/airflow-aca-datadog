@@ -6,7 +6,7 @@ export default function LessonDone({ slug, lesson }: { slug: string; lesson: str
   const isDone = progress[slug]?.includes(lesson) ?? false;
   return (
     <Checkbox
-      label="Mark this lesson done"
+      label="Mark lesson as complete"
       isChecked={isDone}
       onChange={(event) => setDone(slug, lesson, event.target.checked)}
       size="sm"

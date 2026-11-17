@@ -17,18 +17,18 @@ const stats = [
 
 <Base
   title="Modules"
-  description="Five people run Contoso's order pipeline. Learn what each one owns, what breaks, and the Datadog tools that find the cause."
+  description="Five people operate Contoso's order pipeline. Each module covers one person's responsibilities, the incident in their area, and the Datadog products that identify its cause."
 >
   <section class="hero">
     <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">
       Contoso Outfitters · Data pipeline
     </Text>
-    <Text as="h1" size="xxl" weight="bold">Who finds the problem, and how</Text>
+    <Text as="h1" size="xxl" weight="bold">Pipeline incidents, by role</Text>
     <Text as="p" size="lg" variant="secondary" className="lede">
-      Contoso sells outdoor and travel gear online and in seven stores. Every order flows from the storefront,
-      through Event Hubs and a landing zone, into a Postgres warehouse that Airflow builds every 15 minutes. Five
-      people run that pipeline. Each module follows one of them: what they own, what breaks in their part, and the
-      Datadog tools that catch it and find the cause.
+      Contoso sells outdoor and travel equipment online and through seven retail stores. Every order passes from the
+      storefront, through Event Hubs and a landing zone, into a PostgreSQL warehouse that Airflow rebuilds every 15
+      minutes. Five people operate that pipeline. Each module follows one of them, covering the components they own,
+      the incident that occurs in their area, and the Datadog products that detect it and identify its cause.
     </Text>
     <Stats client:only="react" stats={stats}>
       <ul slot="fallback" class="stats stats-fallback">
@@ -39,10 +39,10 @@ const stats = [
 
   <section aria-labelledby="pipeline-heading">
     <div class="section-head">
-      <Text as="h2" size="lg" weight="bold" id="pipeline-heading">How an order moves, and who owns each step</Text>
+      <Text as="h2" size="lg" weight="bold" id="pipeline-heading">The order flow and the owner of each step</Text>
       <Text as="p" variant="secondary">
-        An order reaches the dashboards within about 20 minutes of checkout. Each step is colored by its owner, and tagged with the Datadog
-        products that watch it. Select a step for the details.
+        An order reaches the dashboards within approximately 20 minutes of checkout. Each step is colored by its owner and
+        labeled with the Datadog products that monitor it. Select a step to view its details.
       </Text>
     </div>
     <Pipeline height={600} initial="storefront" />
@@ -52,7 +52,7 @@ const stats = [
     <div class="section-head">
       <Text as="h2" size="lg" weight="bold" id="modules-heading">Modules</Text>
       <Text as="p" variant="secondary">
-        Each takes about 10 minutes. Start anywhere; John's module ties the others together.
+        Each module takes approximately 10 minutes and can be completed in any order; John's module connects the others.
       </Text>
     </div>
     <div class="card-grid">

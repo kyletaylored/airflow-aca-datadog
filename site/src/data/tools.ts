@@ -27,13 +27,13 @@ export const tools: Tool[] = [
     summary:
       "Every DAG run and task run, with status, duration, retries, the error and its stack trace, and the datasets each task read and wrote.",
     inThisDemo:
-      "Airflow's OpenLineage provider sends each run of contoso_orders straight to Datadog. No Agent is involved.",
+      "Airflow's OpenLineage provider sends each run of contoso_orders directly to Datadog, without the Agent.",
     docs: "https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow/",
   },
   {
     id: "dataObservability",
     name: "Data Observability",
-    question: "Is the data right, and what does a bad table affect?",
+    question: "Is the data correct, and what does a faulty table affect?",
     summary:
       "A catalog of the warehouse tables, data quality monitors on them (freshness, volume, nulls, custom SQL), and lineage from the Kafka topic through to the reports.",
     inThisDemo:
@@ -43,7 +43,7 @@ export const tools: Tool[] = [
   {
     id: "apm",
     name: "APM",
-    question: "Which service is misbehaving, and where does the time go?",
+    question: "Which service is degraded, and where is the time spent?",
     summary:
       "Traces from the storefront and the order processor, and from Airflow's own components: the scheduler, the task process and the triggerer.",
     inThisDemo:
@@ -53,7 +53,7 @@ export const tools: Tool[] = [
   {
     id: "dsm",
     name: "Data Streams Monitoring",
-    question: "Are the messages getting through?",
+    question: "Are messages being delivered?",
     summary:
       "The pathway from producer to topic to consumer, with throughput, lag and end-to-end latency.",
     inThisDemo: "The storefront → orders topic → order-processor pathway on Event Hubs.",
@@ -62,20 +62,20 @@ export const tools: Tool[] = [
   {
     id: "dbm",
     name: "Database Monitoring",
-    question: "How is the database itself doing?",
+    question: "Is the database itself performing well?",
     summary:
       "Query metrics, samples and explain plans for every database on the Postgres server, plus each table's schema.",
-    inThisDemo: "The same Agent check that feeds Data Observability, with dbm turned on.",
+    inThisDemo: "The same Agent check that feeds Data Observability, with dbm enabled.",
     docs: "https://docs.datadoghq.com/database_monitoring/",
   },
   {
     id: "bits",
     name: "Bits AI",
-    question: "Can Datadog do the first pass of the investigation?",
+    question: "Can Datadog perform the initial investigation?",
     summary:
-      "Bits Investigation starts from an alert, Bits Chat answers questions about your telemetry, and Bits Code proposes a fix as a pull request.",
+      "Bits Investigation starts from an alert, Bits Chat answers questions about telemetry, and Bits Code proposes a fix as a pull request.",
     inThisDemo:
-      "Datadog's Bits AI docs don't cover Data Observability yet, so try each prompt before you present it.",
+      "The Bits AI documentation does not yet cover Data Observability, so test each prompt before presenting it.",
     docs: "https://docs.datadoghq.com/bits_ai/",
   },
 ];

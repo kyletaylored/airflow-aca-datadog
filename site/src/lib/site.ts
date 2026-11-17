@@ -6,13 +6,13 @@ export function href(path = ""): string {
 
 // The lessons every persona module walks through, in order.
 export const lessons = [
-  { id: "meet", title: "Meet the persona" },
-  { id: "tech", title: "Their stack" },
-  { id: "responsibilities", title: "What they own" },
-  { id: "problem", title: "The problem" },
-  { id: "detect", title: "How Datadog catches it" },
-  { id: "investigate", title: "Finding the cause" },
-  { id: "resolve", title: "Fixing it" },
+  { id: "meet", title: "Persona overview" },
+  { id: "tech", title: "Technology stack" },
+  { id: "responsibilities", title: "Responsibilities" },
+  { id: "problem", title: "The incident" },
+  { id: "detect", title: "Detection" },
+  { id: "investigate", title: "Investigation" },
+  { id: "resolve", title: "Resolution" },
   { id: "check", title: "Knowledge check" },
 ] as const;
 

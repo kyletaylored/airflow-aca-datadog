@@ -36,7 +36,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Null ratio, in percent",
     detection: "Threshold",
     target: "staging.orders.customer_id",
-    purpose: "spotting orders that arrive without a customer",
+    purpose: "detecting orders that arrive without a customer",
     tracks: "the share of the last hour's orders in staging.orders with no customer_id",
     query: [
       { label: "Measure", code: "nullness(staging.orders.customer_id)", lang: "formula" },
@@ -48,7 +48,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "More than 1% of the orders placed in the last hour reached staging.orders without a customer_id (normally 0%). Likely cause: the null_customers chaos switch, standing in for a storefront release that stopped sending it. marts.customer_value loses those orders downstream.",
-    note: "Measuring only the last hour is what makes one bad batch visible: across the whole table, 14 days of orders, it would barely move the ratio. In our test it read 5.68% after one null_customers run, and cleared an hour later.",
+    note: "Measuring only the last hour is what makes a single faulty batch visible: across the whole table, which holds 14 days of orders, the ratio would barely change. In testing, it read 5.68% after one null_customers run and cleared an hour later.",
   },
   jobFailures: {
     id: "jobFailures",
@@ -58,7 +58,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Failed runs",
     detection: "Threshold",
     target: "Every Airflow DAG, one alert per DAG",
-    purpose: "knowing as soon as a pipeline run fails",
+    purpose: "detecting a failed pipeline run as soon as it occurs",
     tracks: "failed runs of every Airflow DAG in Data Jobs Monitoring, grouped by DAG and environment",
     query: [
       { label: "Jobs", code: "all Airflow DAGs  (job type: airflow.dag)", lang: "formula" },
@@ -69,7 +69,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "Continuously, as runs finish",
     message:
       "The latest run of {{job_name.name}} failed in the last hour, so whatever it builds isn't being updated. In the demo, when the DAG is contoso_orders, the likely cause is the breaking_schema chaos switch: it renames raw.orders.amount_cents after the load, and staging_orders fails.",
-    note: "It counts trailing failed runs, so it recovers as soon as the DAG has a successful run. Watching every DAG also caught a real outage in our test, when Azure Resource Manager started refusing the scheduler and every ACA Job DAG failed.",
+    note: "It counts trailing failed runs, so it recovers as soon as the DAG completes a successful run. Because it covers every DAG, it also detected a genuine outage during testing, when Azure Resource Manager began rejecting the scheduler's requests and every ACA Job DAG failed.",
   },
   rowGap: {
     id: "rowGap",
@@ -79,8 +79,8 @@ export const monitors: Record<string, Monitor> = {
     measure: "Row count difference",
     detection: "Threshold",
     target: "raw.orders → staging.orders",
-    purpose: "catching orders that load but never reach staging",
-    tracks: "the row count of staging.orders against the row count of raw.orders, test orders excluded",
+    purpose: "detecting orders that load but never reach staging",
+    tracks: "the row count of staging.orders against the row count of raw.orders, excluding test orders",
     query: [
       { label: "Source", code: "Row Count of raw.orders WHERE channel <> 'test'", lang: "sql" },
       { label: "Target", code: "Row Count of staging.orders", lang: "sql" },
@@ -91,7 +91,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "staging.orders is more than 50 orders behind raw.orders (test orders excluded). Rows are piling up between the load and staging, so the marts are working from old data. Likely cause: staging_orders failing, as the breaking_schema chaos switch makes it.",
-    note: "When staging is healthy the two counts match and the difference is 0. While staging_orders was failing in our test, it read -149.",
+    note: "When staging is healthy, the two counts match and the difference is 0. While staging_orders was failing during testing, it read -149.",
   },
   rowCount: {
     id: "rowCount",
@@ -101,8 +101,8 @@ export const monitors: Record<string, Monitor> = {
     measure: "Row count",
     detection: "Threshold",
     target: "raw.orders",
-    purpose: "noticing when the load stops or shrinks",
-    tracks: "the rows loaded into raw.orders in the last 15 minutes, which is what the latest run loaded",
+    purpose: "detecting when the load stops or declines",
+    tracks: "the rows loaded into raw.orders in the last 15 minutes, which corresponds to the most recent run",
     query: [
       { label: "Measure", code: "row_count(raw.orders)", lang: "formula" },
       { label: "WHERE", code: "_loaded_at > now() - interval '15 minutes'", lang: "sql" },
@@ -113,7 +113,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "Fewer than 100 orders were loaded into raw.orders in the last 15 minutes (about 300 is normal for one run). Likely causes: the volume_drop or skip_load chaos switch, or the order stream stalling.",
-    note: "In our test it read 0 fifteen minutes after the load stopped, and recovered on the next run.",
+    note: "In testing, it read 0 fifteen minutes after the load stopped, and recovered on the next run.",
   },
   martFreshness: {
     id: "martFreshness",
@@ -123,7 +123,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Freshness, in minutes",
     detection: "Threshold",
     target: "marts.daily_store_sales",
-    purpose: "knowing when the store sales reports go stale",
+    purpose: "detecting when the store sales reports become stale",
     tracks: "the minutes since the mart was last rebuilt, from its updated_at column",
     query: [
       {
@@ -146,7 +146,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Freshness, in minutes",
     detection: "Threshold",
     target: "staging.orders",
-    purpose: "noticing when new orders stop arriving",
+    purpose: "detecting when new orders stop arriving",
     tracks: "the minutes since the newest order in staging.orders was placed",
     query: [
       {
@@ -169,7 +169,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Business rule",
     detection: "Threshold",
     target: "marts.daily_store_sales",
-    purpose: "catching revenue that can't be right",
+    purpose: "detecting revenue that cannot be correct",
     tracks: "the number of store-days whose revenue_usd is below zero",
     query: [
       {
@@ -191,7 +191,7 @@ export const monitors: Record<string, Monitor> = {
     measure: "Today's revenue",
     detection: "Anomaly detection",
     target: "marts.daily_store_sales",
-    purpose: "catching revenue that's plausible but wrong",
+    purpose: "detecting revenue that is plausible but incorrect",
     tracks: "today's total revenue across all stores, compared with its usual daily pattern",
     query: [
       {
@@ -205,7 +205,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "Today's total revenue in marts.daily_store_sales is outside its expected range, so the store sales reports are wrong. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
-    note: "Anomaly detection needs about a week of history, including a weekend, before it alerts.",
+    note: "Anomaly detection requires approximately one week of history, including a weekend, before it can alert.",
   },
 };
 

@@ -50,7 +50,7 @@ export const pipelineNodes: PipelineNode[] = [
     kind: "Python service · Container App",
     owner: "dave",
     detail:
-      "Contoso's checkout. When a shopper places an order, it publishes one JSON message to the orders topic, keyed by store. In this demo it stands in for real shoppers: about 20 orders a minute across seven stores and four channels (web, mobile, store and test).",
+      "Contoso's checkout. When a shopper places an order, it publishes one JSON message to the orders topic, keyed by store. In this demo it simulates real shoppers: approximately 20 orders a minute across seven stores and four channels (web, mobile, store and test).",
     watchedBy: ["apm", "dsm"],
     x: 0,
     y: 0,
@@ -61,7 +61,7 @@ export const pipelineNodes: PipelineNode[] = [
     kind: "Azure Event Hubs · Kafka endpoint",
     owner: "dave",
     detail:
-      "Event Hubs Standard, used through its Kafka-compatible endpoint over SASL and TLS. It holds each order message until the order processor reads it.",
+      "Event Hubs Standard, used through its Kafka-compatible endpoint over SASL and TLS. It retains each order message until the order processor reads it.",
     watchedBy: ["dsm"],
     x: COL,
     y: 0,
@@ -72,7 +72,7 @@ export const pipelineNodes: PipelineNode[] = [
     kind: "Python consumer · Container App",
     owner: "dave",
     detail:
-      "Reads the topic as consumer group order-processor and drops any message missing a required field. Every 5 minutes it writes the valid orders as one file to the landing zone, and only then commits its Kafka offsets, so a crash replays a batch instead of losing it. Each batch is reported to Datadog as an OpenLineage run.",
+      "Reads the topic as consumer group order-processor and drops any message missing a required field. Every 5 minutes it writes the valid orders as one file to the landing zone, and only then commits its Kafka offsets, so a crash causes a batch to be replayed rather than lost. Each batch is reported to Datadog as an OpenLineage run.",
     watchedBy: ["apm", "dsm", "dataObservability"],
     x: COL * 2,
     y: 0,
@@ -83,7 +83,7 @@ export const pipelineNodes: PipelineNode[] = [
     kind: "ADLS Gen2 · container landing",
     owner: "dave",
     detail:
-      "One newline-delimited JSON file per batch, one order per line, at orders/dt=2026-11-16/hour=14/batch-20261116T143000-1a2b3c4d.json. The dt= and hour= folders sort the files by the UTC date and hour they landed, so the loader can find new files without reading old ones.",
+      "One newline-delimited JSON file per batch, one order per line, at orders/dt=2026-11-16/hour=14/batch-20261116T143000-1a2b3c4d.json. The dt= and hour= folders sort the files by the UTC date and hour they landed, so the loader can locate new files without reading earlier ones.",
     watchedBy: ["dataObservability"],
     x: COL * 3,
     y: 0,
@@ -94,7 +94,7 @@ export const pipelineNodes: PipelineNode[] = [
     kind: "Airflow task · Python",
     owner: "emily",
     detail:
-      "Every 15 minutes, lists the landing files it hasn't loaded yet, inserts their orders into raw.orders, and records each file name in raw._ingested_files, so no file loads twice.",
+      "Every 15 minutes, lists the landing files it has not yet loaded, inserts their orders into raw.orders, and records each file name in raw._ingested_files, so no file loads twice.",
     watchedBy: ["djm", "apm"],
     x: COL * 3,
     y: ROW,
@@ -147,7 +147,7 @@ export const pipelineNodes: PipelineNode[] = [
     title: "marts tables",
     kind: "Postgres tables",
     owner: "rajesh",
-    detail: "daily_store_sales, customer_value and hourly_order_volume: the numbers the business reads.",
+    detail: "daily_store_sales, customer_value and hourly_order_volume: the figures the business reads.",
     watchedBy: ["dataObservability", "dbm"],
     x: COL,
     y: ROW * 2,

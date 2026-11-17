@@ -77,7 +77,7 @@ const face = avatarUri(persona.slug);
             ))
           }
         </ul>
-        <Text as="h3" size="md" weight="bold" marginTop="md">Where {persona.name}'s part starts and ends</Text>
+        <Text as="h3" size="md" weight="bold" marginTop="md">Scope of {persona.name}'s responsibility</Text>
         <dl class="handoff">
           <dt>Starts</dt>
           <dd><Rich text={persona.handoff.starts} /></dd>
@@ -95,7 +95,7 @@ const face = avatarUri(persona.slug);
           ))
         }
         <Text as="p" size="sm" variant="secondary">
-          {persona.name}'s steps are lit below. Select any step for what it does and what Datadog watches there.
+          {persona.name}'s steps are highlighted below. Select any step to view its function and the Datadog products that monitor it.
         </Text>
         <Pipeline focus={persona.diagram.focus} height={380} />
         <LessonDone client:only="react" slug={persona.slug} lesson="tech"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
@@ -116,7 +116,7 @@ const face = avatarUri(persona.slug);
         </div>
         <Pipeline focus={persona.diagram.focus} marks={persona.diagram.marks} height={440} initial={persona.diagram.marks[0]?.node} />
         <div class="lab">
-          <Text as="p" size="xs" weight="bold" textTransform="uppercase" variant="tertiary">Try it in the demo</Text>
+          <Text as="p" size="xs" weight="bold" textTransform="uppercase" variant="tertiary">Reproduce the incident in the demo</Text>
           {
             persona.problem.inDemo && <Text as="p"><Rich text={persona.problem.inDemo} /></Text>
           }
@@ -126,14 +126,14 @@ const face = avatarUri(persona.slug);
             ) : persona.problem.trigger ? (
               <Text as="p">
                 Trigger <code>contoso_orders</code> with <code>{persona.problem.trigger}</code>.{" "}
-                Wait: <Rich text={persona.problem.wait.charAt(0).toLowerCase() + persona.problem.wait.slice(1)} />.
+                Allow <Rich text={persona.problem.wait.charAt(0).toLowerCase() + persona.problem.wait.slice(1)} />.
               </Text>
             ) : (
-              <Text as="p">{persona.problem.wait}: start from the alert another scenario raised.</Text>
+              <Text as="p">{persona.problem.wait}. Begin from the alert raised by another scenario.</Text>
             )
           }
           <Text as="p" size="sm" variant="secondary">
-            Nothing needs fixing: once the scenario ends, the next scheduled run recovers on its own. See the run sheet in
+            No cleanup is required: once the scenario ends, the next scheduled run recovers automatically. The run sheet is available in
             <a href="https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md#demo-scenarios">
               the demo guide</a>.
           </Text>
