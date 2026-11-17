@@ -967,7 +967,7 @@
   }
   .monitor-fields {
     display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
+    grid-template-columns: 140px minmax(0, 1fr);
     gap: 8px 16px;
     margin: 0;
     font-size: 14px;
@@ -999,11 +999,6 @@
     .monitor-fields,
     .handoff {
       grid-template-columns: 1fr;
-      gap: 2px;
-    }
-    .monitor-fields dd,
-    .handoff dd {
-      margin-bottom: 8px;
     }
   }
 }
@@ -1244,13 +1239,42 @@
   @media (max-width: 700px) {
     .benefits {
       grid-template-columns: 1fr;
-      gap: 2px;
-    }
-    .benefits dd {
-      margin-bottom: 10px;
     }
     .tool-cards {
       grid-template-columns: 1fr;
+    }
+  }
+}
+
+@layer site {
+  /* Two-column definition lists read as tables: a rule between rows, which
+     runs unbroken across both columns, so the column gap becomes dt padding. */
+  :is(.benefits, .handoff, .facts, .monitor-fields) {
+    gap: 0;
+  }
+  :is(.benefits, .handoff, .facts, .monitor-fields) > :is(dt, dd) {
+    padding: 10px 0;
+    border-top: 1px solid var(--ui-border);
+  }
+  :is(.benefits, .handoff, .facts, .monitor-fields) > dt {
+    padding-right: 20px;
+  }
+  :is(.benefits, .handoff, .facts, .monitor-fields) > :is(dt, dd):nth-of-type(1) {
+    padding-top: 0;
+    border-top: 0;
+  }
+  :is(.benefits, .handoff, .facts, .monitor-fields) > :is(dt, dd):last-of-type {
+    padding-bottom: 0;
+  }
+
+  @media (max-width: 700px) {
+    /* One column: the rule sits above each term, and its definition follows. */
+    :is(.benefits, .handoff, .monitor-fields) > dt {
+      padding-bottom: 2px;
+    }
+    :is(.benefits, .handoff, .monitor-fields) > dd {
+      padding-top: 0;
+      border-top: 0;
     }
   }
 }
