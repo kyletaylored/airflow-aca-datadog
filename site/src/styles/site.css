@@ -1280,46 +1280,46 @@
 }
 
 @layer site {
-  /* Set up page */
-  .setup-index {
+  /* Config page */
+  .config-index {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     margin: 16px 0 0;
     padding: 0;
     list-style: none;
-    counter-reset: setup;
+    counter-reset: config;
     font-size: 14px;
   }
-  .setup-index li {
-    counter-increment: setup;
+  .config-index li {
+    counter-increment: config;
   }
-  .setup-index a {
+  .config-index a {
     display: inline-block;
     padding: 4px 12px;
     border-radius: 999px;
     border: 1px solid var(--ui-border);
     text-decoration: none;
   }
-  .setup-index a::before {
-    content: counter(setup) ". ";
+  .config-index a::before {
+    content: counter(config) ". ";
     color: var(--ui-text-tertiary);
   }
-  .setup-steps {
+  .config-steps {
     display: grid;
     gap: 16px;
   }
-  .setup-card {
+  .config-card {
     scroll-margin-top: 80px;
   }
-  .setup-card .card-header {
+  .config-card .card-header {
     flex-wrap: wrap;
     row-gap: 8px;
   }
-  .setup-card .card-header .docs-link {
+  .config-card .card-header .docs-link {
     margin-left: auto;
   }
-  .setup-number {
+  .config-number {
     display: grid;
     place-items: center;
     flex: none;
@@ -1331,14 +1331,14 @@
     font-size: 13px;
     font-weight: 700;
   }
-  .setup-note {
+  .config-note {
     margin: 0;
     padding-left: 12px;
     border-left: 3px solid var(--ui-status-warning);
     font-size: 14px;
     color: var(--ui-text-secondary);
   }
-  .setup-clicks {
+  .config-clicks {
     margin: 0;
   }
   main > .callout {

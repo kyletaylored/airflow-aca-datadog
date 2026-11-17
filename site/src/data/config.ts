@@ -9,7 +9,7 @@ export interface Snippet {
   code: string;
 }
 
-export interface SetupStep {
+export interface ConfigStep {
   id: string;
   name: string;
   // The product's badge, when it has one on the tools page.
@@ -25,15 +25,15 @@ export interface SetupStep {
   source: { label: string; path: string };
 }
 
-export interface SetupGroup {
+export interface ConfigGroup {
   title: string;
   intro: string;
-  steps: SetupStep[];
+  steps: ConfigStep[];
 }
 
 const REPO = "https://github.com/kyletaylored/airflow-aca-datadog/blob/main/";
 
-export const setupGroups: SetupGroup[] = [
+export const configGroups: ConfigGroup[] = [
   {
     title: "Airflow on Azure Container Apps",
     intro:
