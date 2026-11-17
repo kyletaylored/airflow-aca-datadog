@@ -25,25 +25,31 @@ import { href } from "../lib/site";
         const users = personas.filter((p) => p.tools.includes(tool.id));
         return (
           <section class="card tool-card" id={tool.id}>
-            <ToolTag tool={tool.id} size="md" />
-            <Text as="h2" size="lg" weight="bold">
-              {tool.question}
-            </Text>
-            <Text as="p">{tool.summary}</Text>
-            <Text as="p" size="sm" variant="secondary">
-              <strong>In this demo:</strong> <Rich text={tool.inThisDemo} />
-            </Text>
-            <div class="used-by">
-              <Text as="span" size="sm" variant="tertiary" weight="bold">
-                Used by
-              </Text>
-              {users.map((p) => (
-                <a href={href(`personas/${p.slug}/`)}>{p.name}</a>
-              ))}
+            <div class="card-header">
+              <ToolTag tool={tool.id} size="md" />
+              <a class="docs-link" href={tool.docs}>
+                Datadog docs ↗
+              </a>
             </div>
-            <a class="docs-link" href={tool.docs}>
-              Datadog docs ↗
-            </a>
+            <div class="card-body">
+              <Text as="h2" size="lg" weight="bold">
+                {tool.question}
+              </Text>
+              <Text as="p">{tool.summary}</Text>
+              <Text as="p" size="sm" variant="secondary">
+                <strong>In this demo:</strong> <Rich text={tool.inThisDemo} />
+              </Text>
+            </div>
+            <div class="card-footer">
+              <div class="used-by">
+                <Text as="span" size="sm" variant="tertiary" weight="bold">
+                  Used by
+                </Text>
+                {users.map((p) => (
+                  <a href={href(`personas/${p.slug}/`)}>{p.name}</a>
+                ))}
+              </div>
+            </div>
           </section>
         );
       })

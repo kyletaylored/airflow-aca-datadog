@@ -23,16 +23,24 @@ import { href } from "../../lib/site";
       {
         conceptLessons.map((l, i) => (
           <a class="card persona-card" href={href(`concepts/${l.slug}/`)}>
-            <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
-              Concept {i + 1}
-            </Text>
-            <Text as="h2" size="lg" weight="bold">
-              {l.title}
-            </Text>
-            <Text as="p" variant="secondary">
-              {l.summary}
-            </Text>
-            <span class="card-cta">Read the lesson →</span>
+            <div class="card-header">
+              <div>
+                <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
+                  Concept {i + 1}
+                </Text>
+                <Text as="h2" size="lg" weight="bold">
+                  {l.title}
+                </Text>
+              </div>
+            </div>
+            <div class="card-body">
+              <Text as="p" variant="secondary">
+                {l.summary}
+              </Text>
+            </div>
+            <div class="card-footer">
+              <span class="card-cta">Read the lesson →</span>
+            </div>
           </a>
         ))
       }

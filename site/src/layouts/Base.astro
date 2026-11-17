@@ -13,7 +13,7 @@ const path = Astro.url.pathname;
 const nav = [
   { label: "Modules", to: "", also: "personas/" },
   { label: "Concepts", to: "concepts/" },
-  { label: "Datadog tools", to: "tools/" },
+  { label: "Datadog", to: "tools/" },
 ];
 ---
 
@@ -61,8 +61,17 @@ const nav = [
               );
             })
           }
-          <button class="theme-toggle" type="button" aria-label="Switch light or dark theme">
-            <span class="theme-toggle-label">Theme</span>
+          <button class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark theme">
+            <span class="theme-toggle-track" aria-hidden="true">
+              <svg class="theme-icon theme-icon-sun" viewBox="0 0 16 16" width="12" height="12">
+                <circle cx="8" cy="8" r="3" fill="currentColor" />
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+              <svg class="theme-icon theme-icon-moon" viewBox="0 0 16 16" width="12" height="12">
+                <path d="M13.5 9.6A5.5 5.5 0 0 1 6.4 2.5a5.5 5.5 0 1 0 7.1 7.1Z" fill="currentColor" />
+              </svg>
+              <span class="theme-toggle-thumb"></span>
+            </span>
           </button>
         </nav>
       </div>
@@ -78,12 +87,20 @@ const nav = [
       </div>
     </footer>
     <script is:inline>
-      document.querySelector(".theme-toggle").addEventListener("click", function () {
-        var dark = !document.body.classList.contains("dark-mode");
-        document.body.classList.toggle("dark-mode", dark);
-        document.body.classList.toggle("light-mode", !dark);
-        try { localStorage.setItem("personas-theme", dark ? "dark" : "light"); } catch (e) {}
-      });
+      (function () {
+        var toggle = document.querySelector(".theme-toggle");
+        var sync = function () {
+          toggle.setAttribute("aria-checked", String(document.body.classList.contains("dark-mode")));
+        };
+        sync();
+        toggle.addEventListener("click", function () {
+          var dark = !document.body.classList.contains("dark-mode");
+          document.body.classList.toggle("dark-mode", dark);
+          document.body.classList.toggle("light-mode", !dark);
+          sync();
+          try { localStorage.setItem("personas-theme", dark ? "dark" : "light"); } catch (e) {}
+        });
+      })();
     </script>
   </body>
 </html>
