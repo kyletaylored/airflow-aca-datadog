@@ -1,0 +1,215 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import ConceptPager from "../../components/ConceptPager.astro";
+import Diagram from "../../components/Diagram.astro";
+import Rich from "../../components/Rich.astro";
+import type { FlowEdge, FlowNode, Tone } from "../../components/FlowDiagram.tsx";
+import Base from "../../layouts/Base.astro";
+import { categories, categoryById, makers, matrix, tools, type CategoryId } from "../../data/landscape";
+import { href } from "../../lib/site";
+
+const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const toolsFor = (id: CategoryId) => tools.filter((t) => t.category === id);
+const alsoFor = (id: CategoryId) => tools.filter((t) => t.also?.includes(id));
+const names = (id: CategoryId) => [...toolsFor(id), ...alsoFor(id)].map((t) => t.name);
+
+// The map: where each kind of tool sits between the sources and the people.
+const place: Record<CategoryId, { x: number; y: number; tone: Tone }> = {
+  operational: { x: 0, y: 240, tone: "store" },
+  streaming: { x: 280, y: 40, tone: "stream" },
+  messaging: { x: 280, y: 160, tone: "stream" },
+  ingestion: { x: 280, y: 300, tone: "process" },
+  processing: { x: 560, y: 0, tone: "process" },
+  warehouse: { x: 560, y: 160, tone: "store" },
+  transformation: { x: 560, y: 320, tone: "process" },
+  bi: { x: 840, y: 80, tone: "serve" },
+  activation: { x: 840, y: 240, tone: "serve" },
+  orchestration: { x: 840, y: 400, tone: "control" },
+};
+const mapNodes: FlowNode[] = [
+  { id: "apps", label: "Apps and SaaS tools", sub: "where data is created", x: 0, y: 100, tone: "app", detail: { text: "Websites, mobile applications, payment and CRM systems, and devices: the systems where data originates." } },
+  ...categories.map((c) => ({
+    id: c.id,
+    label: c.name,
+    x: place[c.id].x,
+    y: place[c.id].y,
+    tone: place[c.id].tone,
+    width: 200,
+    detail: { text: `${c.job} ${c.explain}`, items: names(c.id) },
+  })),
+];
+const mapEdges: FlowEdge[] = [
+  { from: "apps", to: "streaming", label: "events" },
+  { from: "apps", to: "messaging", label: "commands" },
+  { from: "apps", to: "operational", fromSide: "bottom", toSide: "top", label: "writes" },
+  { from: "operational", to: "ingestion", label: "CDC, extracts" },
+  { from: "streaming", to: "warehouse" },
+  { from: "ingestion", to: "warehouse" },
+  { from: "processing", to: "warehouse", fromSide: "bottom", toSide: "top", label: "reads, writes" },
+  { from: "transformation", to: "warehouse", fromSide: "top", toSide: "bottom", label: "builds models in" },
+  { from: "warehouse", to: "bi" },
+  { from: "warehouse", to: "activation" },
+  { from: "orchestration", to: "transformation", fromSide: "left", toSide: "right", dashed: true, label: "schedules every step" },
+];
+
+// Queues, pub/sub and streams, side by side.
+const patternNodes: FlowNode[] = [
+  { id: "qp", label: "Producer", x: 0, y: 60, tone: "app", width: 130 },
+  { id: "q", label: "Queue", sub: "SQS, Service Bus, RabbitMQ", x: 210, y: 60, tone: "stream", width: 210, detail: { text: "Each message is delivered to one worker and deleted once that worker acknowledges it. Additional workers share the load; failed messages are retried, then moved to a dead-letter queue." } },
+  { id: "qa", label: "Worker A", sub: "takes message 1", x: 510, y: 0, tone: "process", width: 150 },
+  { id: "qb", label: "Worker B", sub: "takes message 2", x: 510, y: 120, tone: "process", width: 150 },
+  { id: "pp", label: "Publisher", x: 0, y: 280, tone: "app", width: 130 },
+  { id: "t", label: "Topic", sub: "SNS, Pub/Sub, Service Bus topics", x: 210, y: 280, tone: "stream", width: 210, detail: { text: "Each message is copied to every subscription (fan-out). SNS pushes the copies immediately and retains none, so subscribers that require buffering place an SQS queue behind their subscription; Service Bus and Pub/Sub retain each subscription's copy until it is read." } },
+  { id: "ta", label: "Email", sub: "gets a copy", x: 510, y: 220, tone: "process", width: 150 },
+  { id: "tb", label: "Analytics", sub: "gets a copy", x: 510, y: 340, tone: "process", width: 150 },
+  { id: "sp", label: "Producer", x: 0, y: 500, tone: "app", width: 130 },
+  { id: "s", label: "Stream", sub: "Kafka, Event Hubs, Kinesis", x: 210, y: 500, tone: "stream", width: 210, detail: { text: "An ordered, partitioned log that retains every event for its retention period. Each consumer group reads from its own position and can rewind. The demo's orders topic is a stream of this kind." } },
+  { id: "sa", label: "Consumer group A", sub: "at the latest event", x: 510, y: 440, tone: "process", width: 170 },
+  { id: "sb", label: "Consumer group B", sub: "replaying from yesterday", x: 510, y: 560, tone: "process", width: 170 },
+];
+const patternEdges: FlowEdge[] = [
+  { from: "qp", to: "q" },
+  { from: "q", to: "qa", label: "one of" },
+  { from: "q", to: "qb", label: "one of" },
+  { from: "pp", to: "t" },
+  { from: "t", to: "ta", label: "copy" },
+  { from: "t", to: "tb", label: "copy" },
+  { from: "sp", to: "s" },
+  { from: "s", to: "sa", label: "reads" },
+  { from: "s", to: "sb", label: "rewinds" },
+];
+
+const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
+---
+
+<Base
+  title="The data tool landscape"
+  description="Common data tools grouped by function, with each cloud provider's equivalent service shown side by side."
+>
+  <a class="back-link" href={href("concepts/")}>← All concepts</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 3 of 3</Text>
+      <Text as="h1" size="xxl" weight="bold">The data tool landscape</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        Much of the apparent complexity has a single cause: the same function is offered by every cloud provider, by
+        independent vendors and by open source projects, each under a different name. Grouped by function, the list becomes
+        considerably shorter.
+      </Text>
+    </header>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Functions in order of data flow</Text>
+      <Text as="p">Select a function to view its purpose and the tools that provide it.</Text>
+      <Diagram nodes={mapNodes} edges={mapEdges} height={520} initial="warehouse" hint="Select a function to view its purpose and the tools that provide it." />
+      <Text as="p" size="sm" variant="secondary">
+        Observability spans every function: Datadog monitors the services, streams, jobs, tables and database. See <a href={href("tools/")}>the Datadog tools</a>.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Equivalent services by vendor</Text>
+      <Text as="p">
+        Each row lists every vendor's offering for one function. Names in parentheses are widely used managed services
+        that are not described in detail below.
+      </Text>
+      <div class="table-scroll">
+        <table class="data-table matrix">
+          <thead>
+            <tr><th>Function</th>{makers.map((m) => <th>{m}</th>)}</tr>
+          </thead>
+          <tbody>
+            {
+              matrix.map((row) => (
+                <tr>
+                  <th scope="row"><a href={`#${row.category}`}>{categoryById[row.category].name}</a></th>
+                  {makers.map((m) => <td>{row.cells[m] ?? <span class="muted">—</span>}</td>)}
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Streams, queues and publish/subscribe</Text>
+      <Text as="p">
+        Kafka, RabbitMQ, SQS, SNS, Service Bus, Event Hubs and Pub/Sub all transport messages and are often grouped
+        together, but they provide different guarantees. Select the center box in each row for details.
+      </Text>
+      <Diagram nodes={patternNodes} edges={patternEdges} height={560} initial="s" />
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th></th><th>Queue</th><th>Pub/sub topic</th><th>Stream</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Each message goes to</th><td>One worker</td><td>Every subscriber</td><td>Every consumer group</td></tr>
+          <tr><th scope="row">After a message is read</th><td>Deleted</td><td>Each subscription's copy is deleted (SNS retains none)</td><td>Kept until retention ends</td></tr>
+          <tr><th scope="row">Replay</th><td>No</td><td>Generally no (Google Pub/Sub supports seeking back)</td><td>Yes, from any position</td></tr>
+          <tr><th scope="row">Typical use</th><td>Tasks and commands, such as charging a card</td><td>Notifications, such as an order being placed</td><td>Event history and pipelines: every order, available to every reader</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    {
+      categories.map((c) => (
+        <section class="lesson" id={c.id}>
+          <Text as="h2" size="lg" weight="bold">{c.name}</Text>
+          <Text as="p" weight="bold">{c.job}</Text>
+          <Text as="p"><Rich text={c.explain} /></Text>
+          <p class="in-demo"><strong>In this demo:</strong> <Rich text={c.inDemo} /></p>
+          <div class="tool-cards">
+            {toolsFor(c.id).map((t) => (
+              <div class="tool-entry" id={slug(t.name)}>
+                <div class="tool-entry-head">
+                  <Text as="h3" size="md" weight="bold">{t.name}</Text>
+                  <span class={`maker maker-${slug(t.maker)}`}>{t.maker}</span>
+                  {t.inDemo && <span class="maker maker-demo">In this demo</span>}
+                </div>
+                <Text as="p" size="sm"><Rich text={t.what} /></Text>
+                {t.versus && (
+                  <Text as="p" size="sm" variant="secondary">
+                    <strong>Not to be confused with:</strong> <Rich text={t.versus} />
+                  </Text>
+                )}
+                {t.also && (
+                  <div class="also">
+                    <span>Also provides</span>
+                    {t.also.map((a) => <a href={`#${a}`}>{categoryById[a].name}</a>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {alsoFor(c.id).length > 0 && (
+            <div class="also">
+              <span>Also provided by</span>
+              {alsoFor(c.id).map((t) => <a href={`#${slug(t.name)}`}>{t.name}</a>)}
+            </div>
+          )}
+        </section>
+      ))
+    }
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Platforms that span several functions</Text>
+      <Text as="p">
+        Some products bundle several functions, which is why they appear in more than one row. When one of these products
+        is in use, it is worth establishing which of its components a team actually relies on.
+      </Text>
+      <ul class="ticks">
+        {spanning.map((t) => (
+          <li>
+            <a href={`#${slug(t.name)}`}><strong>{t.name}</strong></a>: {categoryById[t.category].name.toLowerCase()}, plus{" "}
+            {t.also!.map((a) => categoryById[a].name.toLowerCase()).join(", ")}.
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <ConceptPager slug="landscape" />
+  </article>
+</Base>

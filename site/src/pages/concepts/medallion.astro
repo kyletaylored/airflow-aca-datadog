@@ -1,0 +1,118 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import ConceptPager from "../../components/ConceptPager.astro";
+import Diagram from "../../components/Diagram.astro";
+import Rich from "../../components/Rich.astro";
+import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
+import Base from "../../layouts/Base.astro";
+import { href } from "../../lib/site";
+
+const nodes: FlowNode[] = [
+  { id: "events", label: "Event streams", sub: "orders topic", x: 0, y: 0, tone: "stream", detail: { text: "Events are first written as files to the landing zone, then loaded into bronze." } },
+  { id: "saas", label: "SaaS apps and databases", sub: "via connectors or CDC", x: 0, y: 120, tone: "app", width: 200, detail: { text: "In most companies, tools such as Fivetran or Airbyte copy these sources into bronze. In this demo, customer data comes from a generated source instead." } },
+  { id: "files", label: "Files", sub: "exports, logs, partner drops", x: 0, y: 240, tone: "app", detail: { text: "Any data delivered as a file is stored in object storage and loaded into bronze unchanged." } },
+  { id: "bronze", label: "Bronze · raw", sub: "raw.orders, raw.customers", x: 300, y: 120, tone: "bronze", width: 200, detail: { text: "Data exactly as it arrived, with its origin and load time recorded (raw.orders retains the source batch file for each order, and _loaded_at). Bronze is never modified, so every downstream layer can be rebuilt from it.", items: ["Append-only", "Source columns and types", "Load metadata", "Kept 14 days in the demo"] } },
+  { id: "silver", label: "Silver · cleaned", sub: "staging.orders, staging.customers", x: 580, y: 120, tone: "silver", width: 220, detail: { text: "Cleaned and conformed: test orders removed, amount_cents converted to amount_usd, an order_date added, and email addresses trimmed and lowercased. The result is one trusted row per order, validated by check_staging.", items: ["Typed and deduplicated", "Business keys", "Quality checks", "Rebuilt every run"] } },
+  { id: "gold", label: "Gold · business-ready", sub: "marts.daily_store_sales, …", x: 880, y: 120, tone: "gold", width: 220, detail: { text: "Aggregated for a specific purpose: sales per store per day, value per customer, and orders per hour. Dashboards, finance and the anomaly monitors read from these tables.", items: ["Aggregates and metrics", "Named for the business", "What BI reads"] } },
+  { id: "bi", label: "BI and reports", sub: "Metabase", x: 1180, y: 0, tone: "serve" },
+  { id: "ml", label: "Data science", sub: "features, models", x: 1180, y: 120, tone: "serve" },
+  { id: "rev", label: "Reverse ETL", sub: "back into the CRM", x: 1180, y: 240, tone: "serve" },
+];
+const edges: FlowEdge[] = [
+  { from: "events", to: "bronze" },
+  { from: "saas", to: "bronze" },
+  { from: "files", to: "bronze" },
+  { from: "bronze", to: "silver", label: "clean" },
+  { from: "silver", to: "gold", label: "aggregate" },
+  { from: "gold", to: "bi" },
+  { from: "gold", to: "ml" },
+  { from: "gold", to: "rev" },
+];
+
+const etlNodes: FlowNode[] = [
+  { id: "s1", label: "Source", x: 0, y: 0, tone: "app", width: 120 },
+  { id: "t1", label: "Transform", sub: "in an ETL tool (SSIS, Glue)", x: 200, y: 0, tone: "process", width: 200 },
+  { id: "w1", label: "Warehouse", sub: "only clean data", x: 480, y: 0, tone: "store", width: 160 },
+  { id: "s2", label: "Source", x: 0, y: 140, tone: "app", width: 120 },
+  { id: "w2", label: "Warehouse", sub: "raw tables first", x: 200, y: 140, tone: "store", width: 200 },
+  { id: "t2", label: "Transform", sub: "SQL in the warehouse (dbt)", x: 480, y: 140, tone: "process", width: 160 },
+];
+const etlEdges: FlowEdge[] = [
+  { from: "s1", to: "t1", label: "extract" },
+  { from: "t1", to: "w1", label: "load" },
+  { from: "s2", to: "w2", label: "extract + load" },
+  { from: "w2", to: "t2", label: "transform" },
+];
+---
+
+<Base
+  title="Medallion architecture"
+  description="The bronze, silver and gold layers, their correspondence to this demo's raw, staging and marts schemas, and a comparison of ETL and ELT."
+>
+  <a class="back-link" href={href("concepts/")}>← All concepts</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 2 of 3</Text>
+      <Text as="h1" size="xxl" weight="bold">Medallion architecture</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        A medallion architecture organizes a warehouse or lakehouse into three layers of increasing refinement: bronze,
+        silver and gold. Databricks popularized the term, although the pattern predates it and appears under other names.
+        This demo already follows the pattern, using the layer names that dbt made standard.
+      </Text>
+    </header>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">The three layers and the demo tables in each</Text>
+      <Text as="p">Select a layer to view its contents and purpose.</Text>
+      <Diagram nodes={nodes} edges={edges} height={380} initial="bronze" />
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Medallion layer</th><th>dbt-style name</th><th>In this demo</th><th>Ownership</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="layer layer-bronze">Bronze</span></td><td>raw, landing, source</td><td><code>raw.orders</code>, <code>raw.customers</code></td><td>Loaded by Emily; designed by Rajesh</td></tr>
+          <tr><td><span class="layer layer-silver">Silver</span></td><td>staging, intermediate</td><td><code>staging.orders</code>, <code>staging.customers</code></td><td>Built by Emily; designed by Rajesh</td></tr>
+          <tr><td><span class="layer layer-gold">Gold</span></td><td>marts, presentation</td><td><code>marts.daily_store_sales</code>, <code>marts.customer_value</code>, <code>marts.hourly_order_volume</code></td><td>Business logic by Priya; read by John's dashboards</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <Text as="p" size="sm" variant="secondary">
+        The landing zone that precedes bronze (files in object storage) is sometimes treated as a separate layer. Some teams
+        also add a platinum or semantic layer above gold to hold shared metric definitions.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">The purpose of layering</Text>
+      <dl class="benefits">
+        <dt>Every layer can be rebuilt</dt>
+        <dd>Because bronze is never modified, a defect in the cleaning logic is corrected by rebuilding silver and gold, without requesting that the source resend data.</dd>
+        <dt>Each layer addresses one question</dt>
+        <dd>Whether the data arrived is a bronze concern; whether it is correct is a silver concern; whether the business figures are plausible is a gold concern. The demo's monitors are divided along the same lines.</dd>
+        <dt>Problems are contained at their source</dt>
+        <dd><Rich text="check_staging halts the run on invalid rows before the marts are built, and lineage across the layers shows which mart a faulty raw column affects." /></dd>
+        <dt>Each audience works in its own layer</dt>
+        <dd>Engineers work primarily in bronze and silver; analysts and BI tools read gold, where names and granularity reflect business terms.</dd>
+      </dl>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">ETL compared with ELT</Text>
+      <Diagram nodes={etlNodes} edges={etlEdges} height={260} />
+      <Text as="p">
+        <strong>ETL</strong> (top) transforms data in a separate tool before it reaches the warehouse, so only cleaned data
+        is stored. It was the standard approach when warehouse compute was expensive, and it remains the model for SSIS and
+        for many Glue and Data Factory jobs. <strong>ELT</strong> (bottom) loads the raw data first and transforms it with
+        SQL inside the warehouse, where compute is now inexpensive and elastic. This is the model for Fivetran or Airbyte
+        combined with dbt, and it is the model this demo follows: Airflow loads the files into bronze, then runs SQL to
+        build silver and gold.
+      </Text>
+      <Text as="p">
+        The medallion layers align naturally with ELT: the load step populates bronze, and each transformation step builds the next layer.
+      </Text>
+    </section>
+
+    <ConceptPager slug="medallion" />
+  </article>
+</Base>

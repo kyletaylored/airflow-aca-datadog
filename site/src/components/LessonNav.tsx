@@ -10,7 +10,7 @@ export default function LessonNav({ slug }: { slug: string }) {
   return (
     <nav aria-label="Lessons" className="lesson-nav">
       <Text as="p" size="sm" variant="secondary" weight="bold" marginBottom="xs">
-        Lessons · {done.size} of {lessons.length} done
+        Lessons · {done.size} of {lessons.length} complete
       </Text>
       <div className="progress-track" aria-hidden="true">
         <div className="progress-fill" style={{ width: `${(done.size / lessons.length) * 100}%` }} />
@@ -20,7 +20,7 @@ export default function LessonNav({ slug }: { slug: string }) {
           <li key={lesson.id} className={done.has(lesson.id) ? "is-done" : undefined}>
             <a href={`#${lesson.id}`}>
               <span className="lesson-index">
-                {done.has(lesson.id) ? <CheckCircledIcon aria-label="Done" /> : i + 1}
+                {done.has(lesson.id) ? <CheckCircledIcon aria-label="Complete" /> : i + 1}
               </span>
               {lesson.title}
             </a>

@@ -94,7 +94,7 @@ export const personas: Persona[] = [
     role: "Application engineer",
     owns: "The storefront and the order processor, up to the files in the landing zone",
     summary:
-      "Dave builds the services that take orders and hand them to the data team. When the data goes wrong, Dave needs to know fast whether a release caused it.",
+      "Dave builds the services that accept orders and pass them to the data team. When the data is incorrect, Dave needs to determine quickly whether a release caused the problem.",
     avatarSeed: "dave-4",
     stack: [
       { kind: "Language", name: "Python 3.12", detail: "Both services, on the stock python:3.12-slim image." },
@@ -126,16 +126,16 @@ export const personas: Persona[] = [
       {
         kind: "Lineage",
         name: "OpenLineage",
-        detail: "The order processor reports each landed batch, so lineage starts at the topic.",
+        detail: "The order processor reports each landed batch, so lineage begins at the topic.",
       },
     ],
     handoff: {
       starts:
-        "When a shopper checks out. The storefront publishes the order to the orders topic straight away, as one JSON message keyed by store.",
+        "At checkout. The storefront immediately publishes the order to the orders topic as one JSON message, keyed by store.",
       ends:
-        "When the order processor writes a batch file to the landing zone, every 5 minutes. From there, Emily's ingest_orders task loads it into the warehouse.",
+        "When the order processor writes a batch file to the landing zone, every 5 minutes. Emily's ingest_orders task then loads the file into the warehouse.",
       contract:
-        "Dave owns the order message: which fields it has and what they mean. The processor rejects a message missing a required field, but customer_id isn't one of them, so an order without a customer goes straight through.",
+        "Dave owns the order message: its fields and their meaning. The processor rejects any message that lacks a required field, but customer_id is not a required field, so an order without a customer passes through unchecked.",
       examples: [
         { label: "One message on the orders topic", code: ORDER_MESSAGE },
         { label: "Where the batches land", code: BATCH_PATH },
@@ -143,18 +143,18 @@ export const personas: Persona[] = [
     },
     responsibilities: [
       "Release the storefront and the order processor.",
-      "Keep the order message's fields filled in and their meaning stable, for every team downstream.",
-      "Keep every order flowing from checkout onto the orders topic.",
-      "Land complete batches in the landing zone, without losing or doubling any order.",
+      "Keep the order message's fields populated and their meaning stable for every downstream team.",
+      "Ensure that every order is published from checkout to the orders topic.",
+      "Write complete batches to the landing zone, without losing or duplicating any order.",
     ],
     problem: {
       title: "A storefront release drops customer IDs",
       story:
-        "A new storefront release stops sending customer_id on about 30% of orders. Nothing errors: the orders still reach the topic, land in the lake and load into the warehouse. But staging.orders fills with nulls, and the customer value mart quietly loses those orders, because it joins on the customer.",
+        "A new storefront release stops sending customer_id on approximately 30% of orders. No errors occur: the orders still reach the topic, land in the lake and load into the warehouse. However, staging.orders accumulates nulls, and the customer value mart silently omits those orders, because it joins on the customer.",
       inDemo:
-        "The null_customers param blanks customer_id on 30% of the orders as they load, standing in for the bad release.",
+        "The null_customers parameter clears customer_id on 30% of the orders as they load, simulating the faulty release.",
       trigger: "null_customers",
-      wait: "One run, about 2 minutes, then up to 15 minutes for the monitor's next check",
+      wait: "One run of approximately 2 minutes, then up to 15 minutes for the monitor's next check",
     },
     diagram: {
       focus: ["storefront", "topic", "processor", "landing"],
@@ -165,47 +165,47 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "Nothing fails, so the alert comes from the data itself, further down the pipeline in staging.orders.",
+      intro: "No step fails, so the alert originates from the data itself, further down the pipeline in staging.orders.",
       monitors: ["customerNulls"],
     },
     investigate: [
       {
         tool: "dataObservability",
-        text: "From the monitor, open the table's lineage and go upstream: staging.orders ← staging_orders ← raw.orders ← ingest_orders ← the landing zone ← the orders topic.",
+        text: "From the monitor, open the table's lineage and trace it upstream: staging.orders ← staging_orders ← raw.orders ← ingest_orders ← the landing zone ← the orders topic.",
       },
       {
         tool: "dataObservability",
-        text: "Downstream, marts.customer_value shows as affected: it's missing the orders without a customer.",
+        text: "Downstream, marts.customer_value is marked as affected: it omits the orders that lack a customer.",
       },
-      { tool: "apm", text: "Open contoso-storefront, the service that sent the orders." },
+      { tool: "apm", text: "Open contoso-storefront, the service that published the orders." },
       {
         tool: "dsm",
-        text: "The pathway from the storefront to order-processor is still healthy, so the problem is the data, not the delivery.",
+        text: "The pathway from the storefront to order-processor remains healthy, so the problem lies in the data rather than its delivery.",
       },
     ],
-    bits: "Run Bits Investigation from the alert, and ask it which upstream service produced the null values.",
-    resolve: "Dave rolls back the storefront release. The next scheduled load is clean.",
+    bits: "Run Bits Investigation from the alert and ask which upstream service produced the null values.",
+    resolve: "Dave rolls back the storefront release, and the next scheduled load is clean.",
     tools: ["dataObservability", "apm", "dsm", "bits"],
     quiz: [
       {
-        prompt: "Data Streams Monitoring shows the storefront → order-processor pathway is healthy. What does that tell Dave?",
+        prompt: "Data Streams Monitoring shows that the storefront → order-processor pathway is healthy. What does this indicate to Dave?",
         options: [
-          "The orders were delivered; the problem is in what they contain",
+          "The orders were delivered; the problem lies in their contents",
           "The order processor dropped messages",
           "Event Hubs is throttling the storefront",
         ],
         answer: 0,
-        why: "A healthy pathway means messages got through on time. The nulls were already in the orders the storefront sent.",
+        why: "A healthy pathway means messages were delivered on time. The nulls were already present in the orders the storefront published.",
       },
       {
-        prompt: "Why didn't the order processor stop the orders without a customer?",
+        prompt: "Why did the order processor accept the orders without a customer?",
         options: [
           "It only validates orders on weekends",
-          "customer_id isn't one of its required fields",
-          "It sends rejected orders to staging anyway",
+          "customer_id is not one of its required fields",
+          "It forwards rejected orders to staging regardless",
         ],
         answer: 1,
-        why: "The processor drops a message only when a required field is missing, and customer_id isn't on that list.",
+        why: "The processor drops a message only when a required field is missing, and customer_id is not a required field.",
       },
     ],
   },
@@ -215,7 +215,7 @@ export const personas: Persona[] = [
     role: "Data architect",
     owns: "The warehouse design: the schemas and tables, and what each column means",
     summary:
-      "Rajesh decides how the warehouse is shaped. A rename that looks harmless in raw can break every table built on it, so Rajesh needs to see what depends on a column before changing it.",
+      "Rajesh determines the structure of the warehouse. A rename that appears harmless in raw can break every table built on it, so Rajesh needs to see what depends on a column before changing it.",
     avatarSeed: "rajesh-9",
     stack: [
       {
@@ -250,23 +250,23 @@ export const personas: Persona[] = [
       },
     ],
     handoff: {
-      starts: "Rajesh doesn't run a step of the pipeline. Every step reads and writes tables Rajesh designed.",
-      ends: "When a change ships. Rajesh decides how a column changes, and who has to change with it.",
+      starts: "Rajesh does not operate a step of the pipeline. Every step reads from and writes to tables that Rajesh designed.",
+      ends: "At release. Rajesh decides how a column changes, and which teams must adapt to the change.",
       contract:
-        "The column contract: raw.orders.amount_cents is whole cents, staging.orders.amount_usd is dollars, and revenue_usd in marts.daily_store_sales and marts.customer_value is summed from that. Renaming one breaks everything that reads it.",
+        "The column contract: raw.orders.amount_cents holds whole cents, staging.orders.amount_usd holds dollars, and revenue_usd in marts.daily_store_sales and marts.customer_value is summed from amount_usd. Renaming any of these columns breaks every consumer that reads it.",
     },
     responsibilities: [
       "Design the raw, staging and marts schemas and their tables.",
-      "Define what each column means and its type.",
-      "Approve schema changes, and know what each change affects before it ships.",
+      "Define the meaning and type of each column.",
+      "Approve schema changes, and assess the impact of each change before release.",
     ],
     problem: {
       title: "A schema change breaks staging",
       story:
-        "raw.orders.amount_cents is renamed to amount_minor. The load still works, but the staging_orders task reads amount_cents. It fails, retries twice and fails again, so none of the mart tasks run and every report goes stale.",
+        "raw.orders.amount_cents is renamed to amount_minor. The load still succeeds, but the staging_orders task reads amount_cents. The task fails, retries twice and fails again, so none of the mart tasks run and every report becomes stale.",
       trigger: "breaking_schema",
-      lab: "Trigger contoso_orders with breaking_schema three times in a row, just after a scheduled run finishes. Each run fails after its two retries (5 to 8 minutes) and breaks the column again for the next, so staging stays broken across a monitor check while raw keeps loading.",
-      wait: "5 to 25 minutes, while the three runs fail one after another",
+      lab: "Trigger contoso_orders with breaking_schema three times in succession, immediately after a scheduled run finishes. Each run fails after its two retries (5 to 8 minutes) and renames the column again for the next run, so staging remains broken across a monitor check while raw continues to load.",
+      wait: "5 to 25 minutes, while the three runs fail in succession",
     },
     diagram: {
       focus: ["raw", "staging", "marts"],
@@ -278,13 +278,13 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "Three monitors fire in turn, each watching a different layer.",
+      intro: "Three monitors alert in sequence, each covering a different layer.",
       monitors: ["jobFailures", "rowGap", "martFreshness"],
     },
     investigate: [
       {
         tool: "djm",
-        text: "Open the failed run of contoso_orders. The staging_orders task failed with column \"amount_cents\" does not exist, and the mart tasks never ran.",
+        text: "Open the failed run of contoso_orders. The staging_orders task failed with column \"amount_cents\" does not exist, and the mart tasks did not run.",
       },
       {
         tool: "dataObservability",
@@ -292,28 +292,28 @@ export const personas: Persona[] = [
       },
       {
         tool: "dbm",
-        text: "Database Monitoring also keeps each table's schema, collected every 10 minutes, so you can check raw.orders' columns there.",
+        text: "Database Monitoring also records each table's schema every 10 minutes, so the columns of raw.orders can be verified there.",
       },
     ],
-    bits: "Ask Bits Chat what depends on raw.orders.amount_cents. Ask Bits Code to propose the staging SQL change as a pull request.",
+    bits: "Ask Bits Chat what depends on raw.orders.amount_cents, then ask Bits Code to propose the staging SQL change as a pull request.",
     resolve: "Rajesh reverts the rename, or Emily updates the staging SQL to read amount_minor.",
     tools: ["djm", "dataObservability", "dbm", "bits"],
     quiz: [
       {
-        prompt: "Which view shows Rajesh what a rename of raw.orders.amount_cents would break?",
+        prompt: "Which view shows Rajesh what renaming raw.orders.amount_cents would break?",
         options: ["The DAG's task durations", "Column-level lineage from that column", "The order processor's traces"],
         answer: 1,
-        why: "Column lineage follows amount_cents into amount_usd and on to revenue_usd in two marts.",
+        why: "Column-level lineage traces amount_cents to amount_usd, and from there to revenue_usd in two marts.",
       },
       {
-        prompt: "Why do the marts go stale even though the load succeeded?",
+        prompt: "Why do the marts become stale even though the load succeeded?",
         options: [
           "The marts run on a different schedule",
           "staging_orders failed, so the mart tasks after it never ran",
           "The Agent stopped reading the marts",
         ],
         answer: 1,
-        why: "The mart tasks depend on staging_orders. When it fails after its retries, they're never started.",
+        why: "The mart tasks depend on staging_orders. When that task fails after its retries, the mart tasks are never started.",
       },
     ],
   },
@@ -323,7 +323,7 @@ export const personas: Persona[] = [
     role: "Data engineer",
     owns: "The Airflow pipelines that move data from the landing zone through raw and staging",
     summary:
-      "Emily runs the loads. A run that succeeds but moves no data is the worst kind of failure: nothing turns red until someone notices the numbers.",
+      "Emily operates the loads. A run that succeeds without moving any data is the most difficult failure to detect: no status changes until someone notices the figures.",
     avatarSeed: "emily-7",
     stack: [
       {
@@ -339,12 +339,12 @@ export const personas: Persona[] = [
       {
         kind: "Custom operator",
         name: "LoadLandedOrdersOperator",
-        detail: "Lists new landing files with azure-storage-blob, loads them into raw.orders, and reports the datasets to OpenLineage itself.",
+        detail: "Lists new landing files with azure-storage-blob, loads them into raw.orders, and reports the datasets to OpenLineage directly.",
       },
       {
         kind: "Airflow operators",
         name: "SQLExecuteQueryOperator, SQLCheckOperator",
-        detail: "The staging steps and check_staging are plain SQL, so OpenLineage reads their tables from the statements.",
+        detail: "The staging steps and check_staging are plain SQL, so OpenLineage derives their tables from the statements.",
       },
       {
         kind: "Lineage",
@@ -358,24 +358,24 @@ export const personas: Persona[] = [
       },
     ],
     handoff: {
-      starts: "At the landing files Dave's order processor writes. ingest_orders loads only the files it hasn't loaded before.",
-      ends: "When staging.orders passes check_staging. Priya's mart builds take over from there.",
+      starts: "At the landing files that Dave's order processor writes. ingest_orders loads only files it has not previously loaded.",
+      ends: "When staging.orders passes check_staging. Priya's mart builds proceed from that point.",
       contract:
         "Every landed order loads exactly once, within 15 minutes. raw._ingested_files records which files each run loaded.",
     },
     responsibilities: [
       "Load every landed batch into raw, every 15 minutes.",
       "Build the staging tables from raw, and check them.",
-      "Rerun or backfill loads when something goes wrong.",
+      "Rerun or backfill loads when a failure occurs.",
     ],
     problem: {
       title: "A load is skipped, then the volume drops",
       story:
-        "One run loads nothing at all, and it still reports success. On the next run, only about 5% of the usual orders arrive. Every task is green, but staging and the marts stop moving.",
+        "One run loads no data yet still reports success. On the following run, only approximately 5% of the usual orders arrive. Every task succeeds, but staging and the marts stop updating.",
       inDemo:
-        "The skip_load and volume_drop params cause one bad run each, but the next scheduled run loads every waiting batch 15 minutes later. To keep the load stopped long enough to see, pause the DAG instead.",
-      lab: "Pause contoso_orders in Airflow. Wait: up to 15 minutes for the row count alert, and about 45 minutes for both freshness alerts. Then unpause it, and the next run catches up.",
-      wait: "About 45 minutes for freshness to cross its threshold",
+        "The skip_load and volume_drop parameters each cause one faulty run, but the next scheduled run loads every pending batch 15 minutes later. To halt the load for long enough to observe the alerts, pause the DAG instead.",
+      lab: "Pause contoso_orders in Airflow. Allow up to 15 minutes for the row count alert and approximately 45 minutes for both freshness alerts. Then unpause the DAG; the next run loads the backlog.",
+      wait: "Approximately 45 minutes for freshness to cross its threshold",
     },
     diagram: {
       focus: ["ingest", "raw", "stagingTask", "staging"],
@@ -386,32 +386,32 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "No run fails, so the job monitor stays quiet. The row count notices first that nothing new is loading, then freshness notices that the tables stopped changing.",
+      intro: "No run fails, so the job monitor does not alert. The row count monitor detects first that no new data is loading; the freshness monitors then detect that the tables have stopped changing.",
       monitors: ["rowCount", "stagingFreshness", "martFreshness"],
     },
     investigate: [
       {
         tool: "djm",
-        text: "The skipped run succeeded but loaded nothing. The ingest_orders task's lineage shows zero rows written.",
+        text: "The skipped run succeeded but loaded no data. The ingest_orders task's lineage shows zero rows written.",
       },
-      { tool: "djm", text: "After volume_drop, the run's row counts are about 5% of normal." },
+      { tool: "djm", text: "After volume_drop, the run's row counts are approximately 5% of normal." },
       {
         tool: "apm",
-        text: "To rule out the platform, Airflow's own traces show whether the scheduler and the task process ran normally.",
+        text: "To rule out the platform, Airflow's own traces show whether the scheduler and the task process operated normally.",
       },
     ],
-    bits: "Run Bits Investigation from the freshness alert, and ask why the table stopped updating.",
-    resolve: "Emily reruns the load. With the order stream, the waiting batches load on the next normal run.",
+    bits: "Run Bits Investigation from the freshness alert and ask why the table stopped updating.",
+    resolve: "Emily reruns the load. Because the batches remain in the landing zone, they load on the next normal run.",
     tools: ["djm", "dataObservability", "apm", "bits"],
     quiz: [
       {
-        prompt: "Every task in the run is green. What catches the problem?",
+        prompt: "Every task in the run succeeded. Which monitor detects the problem?",
         options: ["A freshness monitor on the table", "The DAG's failure count", "The scheduler's heartbeat"],
         answer: 0,
-        why: "The run succeeded, so job-status monitors stay quiet. Freshness notices the table stopped changing.",
+        why: "The run succeeded, so job status monitors do not alert. The freshness monitor detects that the table stopped changing.",
       },
       {
-        prompt: "Where does Emily see that the run moved no data?",
+        prompt: "Where can Emily confirm that the run moved no data?",
         options: [
           "In the ingest_orders task's lineage, which shows zero rows written",
           "In the storefront's error rate",
@@ -428,7 +428,7 @@ export const personas: Persona[] = [
     role: "Analytics engineer",
     owns: "The marts transformations: the SQL that turns clean orders into business metrics",
     summary:
-      "Priya writes the business logic. A bug there produces numbers that look plausible and are wrong, and the pipeline itself reports nothing unusual.",
+      "Priya writes the business logic. A defect there produces figures that appear plausible but are incorrect, while the pipeline itself reports nothing unusual.",
     avatarSeed: "priya-5",
     stack: [
       {
@@ -444,32 +444,32 @@ export const personas: Persona[] = [
       {
         kind: "Templating",
         name: "Jinja",
-        detail: "Airflow renders the SQL before it runs, so run params can change the logic. That's how the demo's refund_bug works.",
+        detail: "Airflow renders the SQL before it runs, so run parameters can alter the logic. The demo's refund_bug scenario relies on this.",
       },
       {
         kind: "Datadog",
         name: "Data Observability monitors",
-        detail: "Custom SQL rules on the marts, such as no negative revenue, and anomaly detection on daily totals.",
+        detail: "Custom SQL rules on the marts, such as a rule against negative revenue, and anomaly detection on daily totals.",
       },
     ],
     handoff: {
       starts: "At staging.orders and staging.customers, once check_staging has passed.",
       ends: "At the marts tables, which John's Metabase dashboards read.",
       contract:
-        "Each mart's numbers mean what the business thinks they mean: revenue_usd in marts.daily_store_sales is the total value of a store's orders that day, and never negative.",
+        "Each mart's figures match the business definition: revenue_usd in marts.daily_store_sales is the total value of a store's orders that day, and is never negative.",
     },
     responsibilities: [
       "Write and review the marts transformations.",
       "Define the business metrics, such as revenue per store per day.",
-      "Make sure the marts' numbers are right, not just fresh.",
+      "Ensure that the marts' figures are correct, not merely current.",
     ],
     problem: {
       title: "A refund change makes revenue negative",
       story:
-        "A change to the refund logic counts every Denver order as a refund. Denver's revenue in marts.daily_store_sales goes negative. staging.orders is untouched, so check_staging passes, and every task succeeds.",
+        "A change to the refund logic counts every Denver order as a refund, and Denver's revenue in marts.daily_store_sales becomes negative. staging.orders is unaffected, so check_staging passes and every task succeeds.",
       trigger: "refund_bug",
-      lab: "Trigger contoso_orders with refund_bug just after a scheduled run finishes (around :31). The bad revenue lasts only until the next scheduled run rebuilds the mart, so it needs to be live at the monitor's next check. Wait: one run, about 2 minutes, then the next check.",
-      wait: "One run, about 2 minutes, then the next check",
+      lab: "Trigger contoso_orders with refund_bug immediately after a scheduled run finishes (at approximately :31). The incorrect revenue persists only until the next scheduled run rebuilds the mart, so it must be present at the monitor's next check. Allow one run of approximately 2 minutes, then the next check.",
+      wait: "One run of approximately 2 minutes, then the next check",
     },
     diagram: {
       focus: ["martTasks", "marts"],
@@ -480,34 +480,34 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "The run is healthy, so the alert has to come from a rule about the numbers.",
+      intro: "The run is healthy, so the alert must come from a rule applied to the figures.",
       monitors: ["negativeRevenue", "revenueAnomaly"],
     },
     investigate: [
       {
         tool: "dataObservability",
-        text: "Lineage shows the problem starts at the mart: staging.orders is clean, and check_staging passed.",
+        text: "Lineage shows that the problem originates at the mart: staging.orders is clean, and check_staging passed.",
       },
       {
         tool: "djm",
-        text: "The mart_daily_store_sales task ran normally. The bug is in the logic, not the run.",
+        text: "The mart_daily_store_sales task ran normally; the defect is in the logic, not the run.",
       },
     ],
     bits: "Ask Bits Code to find the change to the mart SQL and propose a revert.",
-    resolve: "Priya reverts the refund change. The next run rebuilds the mart with correct revenue.",
+    resolve: "Priya reverts the refund change, and the next run rebuilds the mart with correct revenue.",
     tools: ["dataObservability", "djm", "bits"],
     quiz: [
       {
-        prompt: "staging.orders is clean and the mart task succeeded. Where is the bug?",
+        prompt: "staging.orders is clean and the mart task succeeded. Where is the defect?",
         options: ["In the load", "In the mart's SQL logic", "In the storefront"],
         answer: 1,
-        why: "Clean inputs and a successful run leave the transformation itself.",
+        why: "With clean inputs and a successful run, the transformation itself is the remaining cause.",
       },
       {
-        prompt: "Which monitor catches a wrong-but-plausible number on day one?",
+        prompt: "Which monitor detects a plausible but incorrect figure on the first day?",
         options: ["A custom SQL monitor for negative revenue", "The revenue anomaly monitor", "A Job monitor on contoso_orders"],
         answer: 0,
-        why: "The anomaly monitor needs a week of history. A custom SQL rule works from the first run.",
+        why: "The anomaly monitor requires a week of history, whereas a custom SQL rule is effective from the first run.",
       },
     ],
   },
@@ -517,13 +517,13 @@ export const personas: Persona[] = [
     role: "BI lead",
     owns: "The reports built on the marts tables, and the people who read them",
     summary:
-      "John doesn't break anything; John hears about it. Whatever goes wrong upstream, the question is the same: which reports are wrong, and whose problem is it?",
+      "John's work does not cause failures, but John is the first to hear about them. Whatever fails upstream, John must answer the same two questions: which reports are incorrect, and which team owns the problem.",
     avatarSeed: "john-1",
     stack: [
       {
         kind: "BI tool",
         name: "Metabase (open source)",
-        detail: "Version 0.65, running as a Container App. Its own settings live in a metabase database on the same Postgres server.",
+        detail: "Version 0.65, running as a Container App. Its settings are stored in a metabase database on the same PostgreSQL server.",
       },
       {
         kind: "Data source",
@@ -533,28 +533,28 @@ export const personas: Persona[] = [
       {
         kind: "Dashboards",
         name: "Store Sales — Today, Customer Value, Pipeline Health",
-        detail: "About 19 questions in all, each built on one or more marts tables.",
+        detail: "Approximately 19 questions in total, each built on one or more marts tables.",
       },
       {
         kind: "Datadog",
         name: "Data Observability for Metabase",
-        detail: "Datadog reads Metabase's dashboards and questions, so lineage runs past the marts to the reports.",
+        detail: "Datadog reads Metabase's dashboards and questions, so lineage extends beyond the marts to the reports.",
       },
     ],
     handoff: {
-      starts: "At the marts tables, after Priya's builds.",
-      ends: "With the people who read the dashboards: finance and the store managers.",
-      contract: "Readers can trust a dashboard, or they're told it's wrong before they act on it.",
+      starts: "At the marts tables, after Priya's builds complete.",
+      ends: "With the dashboard readers: finance and the store managers.",
+      contract: "Readers can rely on a dashboard, or they are informed that it is incorrect before they act on it.",
     },
     responsibilities: [
       "Build and maintain the dashboards on the marts.",
-      "Tell readers when numbers are wrong or stale, and when they're fixed.",
-      "Route data problems to the person who owns them.",
+      "Inform readers when figures are incorrect or stale, and when they are corrected.",
+      "Route data problems to their owners.",
     ],
     problem: {
-      title: "Which reports are wrong?",
+      title: "Identifying the affected reports",
       story:
-        "Any of the other four scenarios ends at John's dashboards. Readers see stale or wrong numbers, and John has to say which reports to trust and who is fixing the rest.",
+        "Each of the other four scenarios ends at John's dashboards. Readers see stale or incorrect figures, and John must state which reports can be trusted and who is correcting the others.",
       wait: "Follows any of the other scenarios",
     },
     diagram: {
@@ -566,35 +566,35 @@ export const personas: Persona[] = [
     },
     detect: {
       intro:
-        "John doesn't own a monitor. The alert comes from whichever table broke upstream, and lineage carries it to the dashboards: nulls, freshness, the row gap or negative revenue.",
+        "John does not own a monitor. The alert originates from whichever upstream table failed, and lineage connects it to the dashboards: nulls, freshness, the row gap or negative revenue.",
       monitors: [],
     },
     investigate: [
       {
         tool: "dataObservability",
-        text: "Open lineage downstream past the marts tables to the Metabase dashboards. A table marked affected leads to the questions and dashboards showing wrong or stale numbers.",
+        text: "Follow lineage downstream beyond the marts tables to the Metabase dashboards. A table marked as affected leads to the questions and dashboards that show incorrect or stale figures.",
       },
       {
         tool: "dataObservability",
         text: "For example, refund_bug reaches \"Revenue by Store\" on Store Sales — Today, and \"Stores with Negative Revenue\" on Pipeline Health.",
       },
-      { tool: "dataObservability", text: "The lineage path back up shows whose issue it is." },
+      { tool: "dataObservability", text: "Tracing the lineage path upstream identifies the team that owns the issue." },
     ],
     bits: "Ask Bits Chat which dashboards read marts.daily_store_sales, and which monitor alerted first.",
-    resolve: "John tells readers which dashboards to hold off on, and hands the issue to the owner the lineage points to.",
+    resolve: "John informs readers which dashboards to disregard until further notice, and assigns the issue to the owner identified by lineage.",
     tools: ["dataObservability", "bits"],
     quiz: [
       {
-        prompt: "How does John find the dashboards a bad table affects?",
-        options: ["Lineage downstream from the table to Metabase", "Searching Metabase for the table name", "Asking each analyst"],
+        prompt: "How does John identify the dashboards affected by a faulty table?",
+        options: ["Lineage downstream from the table to Metabase", "Search Metabase for the table name", "Ask each analyst"],
         answer: 0,
-        why: "Data Observability's lineage reaches past the marts to the Metabase questions and dashboards built on them.",
+        why: "Data Observability's lineage extends beyond the marts to the Metabase questions and dashboards built on them.",
       },
       {
-        prompt: "How does John know whose problem it is?",
-        options: ["The monitor's name", "The lineage path back up to where the problem starts", "Whoever last edited the dashboard"],
+        prompt: "How does John determine which team owns the problem?",
+        options: ["The monitor's name", "The lineage path upstream to where the problem originates", "The most recent editor of the dashboard"],
         answer: 1,
-        why: "Following lineage upstream ends at the first broken step, and each step has an owner.",
+        why: "Lineage traced upstream ends at the first failed step, and each step has a defined owner.",
       },
     ],
   },

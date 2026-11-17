@@ -44,7 +44,7 @@ export default function Quiz({ slug, questions }: { slug: string; questions: Que
             {checked && (
               <div className="quiz-feedback">
                 <StatusPill level={isRight ? "success" : "danger"} isSoft>
-                  {isRight ? "Correct" : "Not quite"}
+                  {isRight ? "Correct" : "Incorrect"}
                 </StatusPill>
                 <Text size="sm" variant="secondary">
                   {q.why}

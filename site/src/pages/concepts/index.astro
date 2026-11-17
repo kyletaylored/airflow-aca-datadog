@@ -1,0 +1,55 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import Base from "../../layouts/Base.astro";
+import { conceptLessons, glossary } from "../../data/concepts";
+import { href } from "../../lib/site";
+---
+
+<Base
+  title="Data engineering concepts"
+  description="The rationale for distributed data pipelines, the medallion architecture, and the data tool landscape grouped by function."
+>
+  <section class="hero hero-compact">
+    <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Background</Text>
+    <Text as="h1" size="xxl" weight="bold">Data engineering concepts</Text>
+    <Text as="p" size="lg" variant="secondary" className="lede">
+      The persona modules assume familiarity with three topics: the rationale for building a data pipeline, the layered
+      structure of a warehouse, and the purpose of the major data products. These lessons cover each topic.
+    </Text>
+  </section>
+
+  <section>
+    <div class="card-grid">
+      {
+        conceptLessons.map((l, i) => (
+          <a class="card persona-card" href={href(`concepts/${l.slug}/`)}>
+            <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
+              Concept {i + 1}
+            </Text>
+            <Text as="h2" size="lg" weight="bold">
+              {l.title}
+            </Text>
+            <Text as="p" variant="secondary">
+              {l.summary}
+            </Text>
+            <span class="card-cta">Read the lesson →</span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="lesson">
+    <Text as="h2" size="lg" weight="bold">Glossary</Text>
+    <dl class="benefits glossary">
+      {
+        glossary.map((g) => (
+          <>
+            <dt>{g.term}</dt>
+            <dd>{g.meaning}</dd>
+          </>
+        ))
+      }
+    </dl>
+  </section>
+</Base>
