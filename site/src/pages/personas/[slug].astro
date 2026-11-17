@@ -121,7 +121,9 @@ const face = avatarUri(persona.slug);
             persona.problem.inDemo && <Text as="p"><Rich text={persona.problem.inDemo} /></Text>
           }
           {
-            persona.problem.trigger ? (
+            persona.problem.lab ? (
+              <Text as="p"><Rich text={persona.problem.lab} /></Text>
+            ) : persona.problem.trigger ? (
               <Text as="p">
                 Trigger <code>contoso_orders</code> with <code>{persona.problem.trigger}</code>.{" "}
                 Wait: <Rich text={persona.problem.wait.charAt(0).toLowerCase() + persona.problem.wait.slice(1)} />.
@@ -131,7 +133,7 @@ const face = avatarUri(persona.slug);
             )
           }
           <Text as="p" size="sm" variant="secondary">
-            Nothing needs fixing: the next scheduled run, about 15 minutes later, recovers on its own. See the run sheet in
+            Nothing needs fixing: once the scenario ends, the next scheduled run recovers on its own. See the run sheet in
             <a href="https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md#demo-scenarios">
               the demo guide</a>.
           </Text>

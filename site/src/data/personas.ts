@@ -50,6 +50,8 @@ export interface Persona {
     story: string;
     // How the demo makes it happen, when that differs from the story.
     inDemo?: string;
+    // The lab instructions, when they aren't "trigger contoso_orders with <trigger>".
+    lab?: string;
     trigger?: string;
     wait: string;
   };
@@ -152,7 +154,7 @@ export const personas: Persona[] = [
       inDemo:
         "The null_customers param blanks customer_id on 30% of the orders as they load, standing in for the bad release.",
       trigger: "null_customers",
-      wait: "One run, about 2 minutes",
+      wait: "One run, about 2 minutes, then up to 15 minutes for the monitor's next check",
     },
     diagram: {
       focus: ["storefront", "topic", "processor", "landing"],
@@ -263,7 +265,8 @@ export const personas: Persona[] = [
       story:
         "raw.orders.amount_cents is renamed to amount_minor. The load still works, but the staging_orders task reads amount_cents. It fails, retries twice and fails again, so none of the mart tasks run and every report goes stale.",
       trigger: "breaking_schema",
-      wait: "5 to 8 minutes, while staging_orders uses up its two retries",
+      lab: "Trigger contoso_orders with breaking_schema three times in a row, just after a scheduled run finishes. Each run fails after its two retries (5 to 8 minutes) and breaks the column again for the next, so staging stays broken across a monitor check while raw keeps loading.",
+      wait: "5 to 25 minutes, while the three runs fail one after another",
     },
     diagram: {
       focus: ["raw", "staging", "marts"],
@@ -369,7 +372,9 @@ export const personas: Persona[] = [
       title: "A load is skipped, then the volume drops",
       story:
         "One run loads nothing at all, and it still reports success. On the next run, only about 5% of the usual orders arrive. Every task is green, but staging and the marts stop moving.",
-      trigger: "skip_load, then volume_drop on the next run",
+      inDemo:
+        "The skip_load and volume_drop params cause one bad run each, but the next scheduled run loads every waiting batch 15 minutes later. To keep the load stopped long enough to see, pause the DAG instead.",
+      lab: "Pause contoso_orders in Airflow. Wait: up to 15 minutes for the row count alert, and about 45 minutes for both freshness alerts. Then unpause it, and the next run catches up.",
       wait: "About 45 minutes for freshness to cross its threshold",
     },
     diagram: {
@@ -381,8 +386,8 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "The runs succeed, so the job monitor stays quiet. Freshness notices that the tables stopped changing.",
-      monitors: ["stagingFreshness", "martFreshness"],
+      intro: "No run fails, so the job monitor stays quiet. The row count notices first that nothing new is loading, then freshness notices that the tables stopped changing.",
+      monitors: ["rowCount", "stagingFreshness", "martFreshness"],
     },
     investigate: [
       {
@@ -463,7 +468,8 @@ export const personas: Persona[] = [
       story:
         "A change to the refund logic counts every Denver order as a refund. Denver's revenue in marts.daily_store_sales goes negative. staging.orders is untouched, so check_staging passes, and every task succeeds.",
       trigger: "refund_bug",
-      wait: "One run, about 2 minutes",
+      lab: "Trigger contoso_orders with refund_bug just after a scheduled run finishes (around :31). The bad revenue lasts only until the next scheduled run rebuilds the mart, so it needs to be live at the monitor's next check. Wait: one run, about 2 minutes, then the next check.",
+      wait: "One run, about 2 minutes, then the next check",
     },
     diagram: {
       focus: ["martTasks", "marts"],

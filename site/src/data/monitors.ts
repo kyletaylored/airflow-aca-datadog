@@ -1,5 +1,6 @@
 // The monitors the scenarios alert on, as they're defined in the demo's
-// Datadog org (names, types, queries and messages). The queries are in
+// Datadog org (names, types, queries, schedules and messages), and as each was
+// tested against its scenario on 2026-11-16. The queries are in
 // docs/data-pipeline-demo.md, "Monitors to create".
 
 import type { ToolId } from "./tools";
@@ -20,6 +21,8 @@ export interface Monitor {
   query: { label: string; code: string; lang: "sql" | "formula" }[];
   alertWhen: string;
   window: string;
+  // When the monitor runs. A monitor with no schedule runs once, at creation.
+  schedule: string;
   message: string;
   note?: string;
 }
@@ -30,39 +33,43 @@ export const monitors: Record<string, Monitor> = {
     name: "[contoso_dw] staging.orders customer_id nulls",
     product: "dataObservability",
     type: "Column monitor",
-    measure: "Null ratio",
-    detection: "Anomaly detection",
+    measure: "Null ratio, in percent",
+    detection: "Threshold",
     target: "staging.orders.customer_id",
     purpose: "spotting orders that arrive without a customer",
-    tracks: "the share of staging.orders rows with no customer_id, compared with its usual range",
+    tracks: "the share of the last hour's orders in staging.orders with no customer_id",
     query: [
       { label: "Measure", code: "nullness(staging.orders.customer_id)", lang: "formula" },
-      { label: "Alert query", code: 'formula("anomalies(query1)").last("2h") > 0', lang: "formula" },
+      { label: "WHERE", code: "ordered_at > now() - interval '1 hour'", lang: "sql" },
+      { label: "Alert query", code: 'formula("query1").last("2h") > 1', lang: "formula" },
     ],
-    alertWhen: "The null ratio moves outside its expected range",
+    alertWhen: "More than 1% of the last hour's orders have no customer_id (normally 0%)",
     window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
     message:
-      "The null ratio of customer_id in staging.orders moved outside its expected range. Likely cause: the null_customers chaos switch. marts.customer_value loses those orders downstream.",
+      "More than 1% of the orders placed in the last hour reached staging.orders without a customer_id (normally 0%). Likely cause: the null_customers chaos switch, standing in for a storefront release that stopped sending it. marts.customer_value loses those orders downstream.",
+    note: "Measuring only the last hour is what makes one bad batch visible: across the whole table, 14 days of orders, it would barely move the ratio. In our test it read 5.68% after one null_customers run, and cleared an hour later.",
   },
   jobFailures: {
     id: "jobFailures",
-    name: "[contoso_dw] contoso_orders failed runs",
+    name: "[contoso_dw] Airflow DAG {{job_name.name}} has failed runs",
     product: "djm",
     type: "Job monitor",
     measure: "Failed runs",
     detection: "Threshold",
-    target: "contoso_orders (Airflow DAG)",
+    target: "Every Airflow DAG, one alert per DAG",
     purpose: "knowing as soon as a pipeline run fails",
-    tracks: "failed runs of the contoso_orders DAG in Data Jobs Monitoring, grouped by job",
+    tracks: "failed runs of every Airflow DAG in Data Jobs Monitoring, grouped by DAG and environment",
     query: [
-      { label: "Jobs", code: "job_name:contoso_orders  (job type: airflow.dag)", lang: "formula" },
-      { label: "Alert query", code: 'formula("failed_runs(run_query)").by(job_name).last(1h) > 0', lang: "formula" },
+      { label: "Jobs", code: "all Airflow DAGs  (job type: airflow.dag)", lang: "formula" },
+      { label: "Alert query", code: 'formula("failed_runs(run_query)").by(job_name,env).last(1h) > 0', lang: "formula" },
     ],
-    alertWhen: "Any run fails",
+    alertWhen: "The latest run of a DAG failed",
     window: "Last 1 hour",
+    schedule: "Continuously, as runs finish",
     message:
-      "A contoso_orders DAG run failed, so the marts aren't being rebuilt. The breaking_schema chaos switch does this: it renames raw.orders.amount_cents after the load, and staging_orders fails.",
-    note: "It counts trailing failed runs, so it recovers as soon as a run succeeds.",
+      "The latest run of {{job_name.name}} failed in the last hour, so whatever it builds isn't being updated. In the demo, when the DAG is contoso_orders, the likely cause is the breaking_schema chaos switch: it renames raw.orders.amount_cents after the load, and staging_orders fails.",
+    note: "It counts trailing failed runs, so it recovers as soon as the DAG has a successful run. Watching every DAG also caught a real outage in our test, when Azure Resource Manager started refusing the scheduler and every ACA Job DAG failed.",
   },
   rowGap: {
     id: "rowGap",
@@ -73,15 +80,40 @@ export const monitors: Record<string, Monitor> = {
     detection: "Threshold",
     target: "raw.orders → staging.orders",
     purpose: "catching orders that load but never reach staging",
-    tracks: "the row count of raw.orders (test orders excluded) against the row count of staging.orders",
+    tracks: "the row count of staging.orders against the row count of raw.orders, test orders excluded",
     query: [
-      { label: "Source", code: "SELECT count(*) AS dd_value FROM raw.orders WHERE channel <> 'test'", lang: "sql" },
-      { label: "Target", code: "SELECT count(*) AS dd_value FROM staging.orders", lang: "sql" },
+      { label: "Source", code: "Row Count of raw.orders WHERE channel <> 'test'", lang: "sql" },
+      { label: "Target", code: "Row Count of staging.orders", lang: "sql" },
+      { label: "Alert query", code: 'formula("query1").last("75m") < -50', lang: "formula" },
     ],
-    alertWhen: "staging.orders falls more than 50 rows behind raw.orders",
-    window: "Last 2 hours",
+    alertWhen: "staging.orders falls more than 50 rows behind raw.orders (the difference is target minus source, so it goes negative)",
+    window: "Last 75 minutes",
+    schedule: "5, 20, 35 and 50 past the hour",
     message:
       "staging.orders is more than 50 orders behind raw.orders (test orders excluded). Rows are piling up between the load and staging, so the marts are working from old data. Likely cause: staging_orders failing, as the breaking_schema chaos switch makes it.",
+    note: "When staging is healthy the two counts match and the difference is 0. While staging_orders was failing in our test, it read -149.",
+  },
+  rowCount: {
+    id: "rowCount",
+    name: "[contoso_dw] raw.orders row count",
+    product: "dataObservability",
+    type: "Table monitor",
+    measure: "Row count",
+    detection: "Threshold",
+    target: "raw.orders",
+    purpose: "noticing when the load stops or shrinks",
+    tracks: "the rows loaded into raw.orders in the last 15 minutes, which is what the latest run loaded",
+    query: [
+      { label: "Measure", code: "row_count(raw.orders)", lang: "formula" },
+      { label: "WHERE", code: "_loaded_at > now() - interval '15 minutes'", lang: "sql" },
+      { label: "Alert query", code: 'formula("query1").last("2h") < 100', lang: "formula" },
+    ],
+    alertWhen: "Fewer than 100 rows loaded in the last 15 minutes (about 200 to 500 is normal)",
+    window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
+    message:
+      "Fewer than 100 orders were loaded into raw.orders in the last 15 minutes (about 300 is normal for one run). Likely causes: the volume_drop or skip_load chaos switch, or the order stream stalling.",
+    note: "In our test it read 0 fifteen minutes after the load stopped, and recovered on the next run.",
   },
   martFreshness: {
     id: "martFreshness",
@@ -102,6 +134,7 @@ export const monitors: Record<string, Monitor> = {
     ],
     alertWhen: "More than 45 minutes since the last rebuild (three missed runs)",
     window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
     message:
       "marts.daily_store_sales in contoso_dw hasn't been rebuilt in over 45 minutes, so the store sales reports are stale. Likely causes: a failed or paused contoso_orders run, or the skip_load chaos switch.",
   },
@@ -124,6 +157,7 @@ export const monitors: Record<string, Monitor> = {
     ],
     alertWhen: "No new order for more than 45 minutes",
     window: "Last 2 hours",
+    schedule: "Every 15 minutes",
     message:
       "No new orders in staging.orders for over 45 minutes. Likely causes: the skip_load chaos switch, contoso_orders not running, or the order stream stopped.",
   },
@@ -146,6 +180,7 @@ export const monitors: Record<string, Monitor> = {
     ],
     alertWhen: "Any row has negative revenue",
     window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
     message: "marts.daily_store_sales has rows with negative revenue, which got past check_staging.",
   },
   revenueAnomaly: {
@@ -167,6 +202,7 @@ export const monitors: Record<string, Monitor> = {
     ],
     alertWhen: "Today's revenue moves outside its expected range",
     window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
     message:
       "Today's total revenue in marts.daily_store_sales is outside its expected range, so the store sales reports are wrong. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
     note: "Anomaly detection needs about a week of history, including a weekend, before it alerts.",

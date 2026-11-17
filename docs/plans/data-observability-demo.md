@@ -173,6 +173,13 @@ this is waiting on the Data Observability team. Changing the model type, the que
 the schedule (`crontab_override`), creating fresh monitors and restarting the Agent
 all made no difference.
 
+**Resolved 2026-11-16:** the cause was the draft status itself. Draft monitors are
+never scheduled on the Agent; 29737312 started recording hourly the moment it was
+published. After publishing every monitor and giving each a schedule, all of them
+record values and alerted on their scenarios. The working definitions, including the
+last-hour windows for row count and null ratio, are in the
+[demo guide's Monitors to create](../data-pipeline-demo.md#monitors-to-create).
+
 Create them in the UI first. If the monitors API supports this monitor type, script
 them later. Allow about an hour after the Agent starts for the first metadata sync.
 
@@ -271,7 +278,9 @@ What's still open against the "done when" lists:
   The data quality monitors still don't record values: the row-count monitor on
   `raw.orders` has never run, and every triggered run of the others ends with "run
   completed but produced no metric data". That needs Datadog support. The chaos
-  effects themselves are verified in the tables.
+  effects themselves are verified in the tables. (Resolved 2026-11-16: the monitors were drafts,
+  which never run on the Agent, and manual runs report that error even for working
+  monitors. See 1d.)
 - **Affected marts:** table-level lineage is complete. Downstream of `raw.orders` it
   shows `staging_orders`, then `staging.orders`, then all three marts and
   `check_staging`.
@@ -415,8 +424,8 @@ What it needs on Azure Postgres (Bicep and `contoso_dw_bootstrap` now do all of 
 
 1. ~~The Metabase spike~~: done, see 3e.
 2. ~~The two new chaos switches~~: done.
-3. The new monitors: revenue anomaly (29745883) and Source to Target (29745880)
-   and the Job monitor (29746396) created.
+3. The new monitors: revenue anomaly (29745883), Source to Target (29745880,
+   since replaced by 29796972) and the Job monitor (29746396) created.
 4. ~~Metabase in Bicep and the seed script~~: done.
 5. ~~The narrative, team, scenarios and run sheet~~: done.
 
