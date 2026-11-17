@@ -1,0 +1,17 @@
+---
+import { conceptLessons } from "../data/concepts";
+import { href } from "../lib/site";
+
+interface Props {
+  slug: string;
+}
+
+const i = conceptLessons.findIndex((l) => l.slug === Astro.props.slug);
+const prev = conceptLessons[i - 1];
+const next = conceptLessons[i + 1];
+---
+
+<nav class="pager" aria-label="Other concept lessons">
+  {prev ? <a href={href(`concepts/${prev.slug}/`)}>← {prev.title}</a> : <a href={href("concepts/")}>← All concepts</a>}
+  {next ? <a href={href(`concepts/${next.slug}/`)}>{next.title} →</a> : <a href={href()}>The persona modules →</a>}
+</nav>

@@ -1,0 +1,26 @@
+---
+// A concept diagram with its boxes as a plain list until it loads (and when
+// JavaScript is off). React Flow needs the browser, so it's client:only.
+import type { FlowEdge, FlowNode } from "./FlowDiagram.tsx";
+import FlowDiagram from "./FlowDiagram.tsx";
+
+interface Props {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  height?: number;
+  initial?: string;
+  hint?: string;
+  caption?: string;
+}
+
+const { nodes, edges, height, initial, hint, caption } = Astro.props;
+---
+
+<figure class="diagram">
+  <FlowDiagram client:only="react" nodes={nodes} edges={edges} height={height} initial={initial} hint={hint}>
+    <ul slot="fallback" class="pipeline-fallback">
+      {nodes.map((n) => <li><strong>{n.label}</strong>{n.sub ? ` · ${n.sub}` : ""}</li>)}
+    </ul>
+  </FlowDiagram>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
