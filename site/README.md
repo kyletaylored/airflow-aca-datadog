@@ -64,3 +64,19 @@ npm run build     # static site in dist/
 
 Lesson progress and the theme choice are kept in the reader's browser
 (`localStorage`) only.
+
+## Share image and metadata
+
+Every page sets a canonical URL plus Open Graph and Twitter card tags in
+`src/layouts/Base.astro`. The title and description come from each page's `title` and
+`description` props. All pages share one image, `public/og-image.png` (1200 × 630). Its
+source is [`og/og-image.html`](og/og-image.html). After editing the source, render it
+again from `site/`:
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+  --force-device-scale-factor=1 --window-size=1200,630 \
+  --screenshot="$PWD/public/og-image.png" "file://$PWD/og/og-image.html"
+```
+
+On Linux, use `google-chrome` or `chromium` in place of the macOS path.
