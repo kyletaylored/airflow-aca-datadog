@@ -346,48 +346,69 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
 
 ## Monitors to create
 
+These are the eight monitors the scenarios use, as we set them up and tested them
+on 2026-11-16. Three things decide whether a monitor works at all:
+
+- **Publish it.** A monitor saved as a draft (Save as draft in the UI, or
+  `"draft_status": "draft"` from the API) is never scheduled on the Agent, so its
+  query never runs and it stays at No Data. Every "No Data" monitor in our deploy
+  was a draft.
+- **Give it a schedule.** Without one, Custom SQL and column monitors run once when
+  they're created. Use the custom cron `5,20,35,50 * * * *`: `contoso_orders` runs
+  every 15 minutes and takes about 2, so each check lands just after a run.
+- **Measure a recent window.** `raw.orders` keeps 14 days of orders, about 400,000
+  rows, so one bad batch barely moves a whole-table row count or null ratio. Filter
+  the measure to the last hour or the last run, with the check's WHERE clause
+  (`custom_where` in the API).
+
 Create these from a table's **Monitors** tab, under Add Monitor:
 
-| Table | Monitor | What it catches |
-|---|---|---|
-| `raw.orders` | Custom SQL, orders in the last hour: `SELECT count(*) AS dd_value FROM raw.orders WHERE ordered_at > now() - interval '1 hour'` (anomaly detection, or alert below 300) | `volume_drop` and `skip_load` |
-| `staging.orders` | Column metric: null ratio of `customer_id` | `null_customers` |
-| `staging.orders` | Custom SQL (freshness, in minutes): `SELECT EXTRACT(EPOCH FROM now() - max(ordered_at)) / 60 AS dd_value FROM staging.orders` | `skip_load` |
-| `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` (alert above 0) | `refund_bug` |
-| `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales` (alert above 45) | `breaking_schema`, a stalled DAG |
-| `marts.daily_store_sales` | Custom SQL, anomaly detection: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date = (now() AT TIME ZONE 'UTC')::date` | `refund_bug` |
+| Table | Monitor | Alert when | What it catches |
+|---|---|---|---|
+| `raw.orders` | Row Count, WHERE `_loaded_at > now() - interval '15 minutes'`: the rows the latest run loaded | below 100 (healthy is about 200 to 500) | a stopped load, and `volume_drop` |
+| `staging.orders.customer_id` | Null ratio (Nullness), WHERE `ordered_at > now() - interval '1 hour'`. The measure is a percentage, 0 to 100 | above 1 (healthy is 0) | `null_customers`, which reads about 5 to 6% after one run |
+| `staging.orders` | Custom SQL freshness, in minutes: `SELECT EXTRACT(EPOCH FROM now() - max(ordered_at)) / 60 AS dd_value FROM staging.orders` | above 45 (healthy is about 5 to 25) | a stopped load |
+| `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` | above 0 | `refund_bug` |
+| `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales` | above 45 | a failed or stopped DAG |
+| `marts.daily_store_sales` | Custom SQL: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date = (now() AT TIME ZONE 'UTC')::date` | anomaly detection | `refund_bug`, once it has about a week of history |
+
+For a threshold that's normally 0, use Thresholds, not Anomalies: a series that
+never moves gives anomaly detection nothing to learn.
 
 The scenarios use two more monitor types:
 
-- **Source to Target** (Preview, ask your Datadog contact for access). Compare
-  `raw.orders` with `staging.orders`, using custom SQL on each side:
-  `SELECT count(*) AS dd_value FROM raw.orders WHERE channel <> 'test'` as the source,
-  and `SELECT count(*) AS dd_value FROM staging.orders` as the target. Set Format to
-  Difference and alert below -50. It catches `breaking_schema`: raw keeps loading
-  while staging is stuck.
-- **Job:** failed runs of the `contoso_orders` DAG, which catches `breaking_schema`.
-  Create it in the UI (New Monitor → Job), or with the monitors API as type
-  `data-jobs alert`:
+- **Source to Target** (Preview, ask your Datadog contact for access). Add a Row
+  Count check: source `raw.orders` with WHERE `channel <> 'test'` (staging drops
+  test orders), target `staging.orders`, detection Thresholds, format Difference.
+  The difference is target minus source, so a lagging staging comes out negative:
+  alert **below -50**. It read -149 while staging was failing in our test. It
+  catches `breaking_schema`: raw keeps loading while staging is stuck.
+- **Job:** failed runs of Airflow DAGs, which catches `breaking_schema`. Create it in
+  the UI (New Monitor → Job), or with the monitors API as type `data-jobs alert`:
 
   ```json
   {
-    "name": "[contoso_dw] contoso_orders failed runs",
+    "name": "[contoso_dw] Airflow DAG {{job_name.name}} has failed runs",
     "type": "data-jobs alert",
-    "query": "formula(\"failed_runs(run_query)\").by(job_name).last(1h) > 0",
+    "query": "formula(\"failed_runs(run_query)\").by(job_name,env).last(1h) > 0",
     "options": {
       "thresholds": {"critical": 0},
       "variables": [{
         "name": "run_query",
         "job_type": "airflow.dag",
-        "jobs_query": "job_name:contoso_orders",
+        "jobs_query": "",
         "query_dialect": "metric"
       }]
     }
   }
   ```
 
-  `failed_runs` counts *trailing* failed runs, so the monitor recovers as soon as the
-  DAG has a successful run. That's what scenario 2 has to work around.
+  An empty `jobs_query` covers every Airflow DAG, with one alert group per DAG. Set
+  it to `job_name:contoso_orders` to watch only the pipeline. Watching every DAG paid
+  off in our test: it also caught a real outage, when Azure Resource Manager started
+  returning 403 to the scheduler and every ACA Job DAG failed. `failed_runs` counts
+  *trailing* failed runs, so the monitor recovers as soon as the DAG has a
+  successful run.
 
 **Schema change monitors** and the Schema Changes page support Snowflake, BigQuery,
 Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and
@@ -395,23 +416,20 @@ Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and
 
 **How often monitors run.** Check this before a live demo:
 
-- **Built-in row count and freshness** come from Datadog's warehouse metadata crawl,
-  not from a query, and can't be run on demand. In our deploy, the `raw.orders` row
-  count never recorded a value, so the guide uses Custom SQL for these instead.
-- **Custom SQL and column monitors with no schedule** run once when they're created,
-  then only when triggered. Trigger one with the Data Observability API (in Preview):
-  `POST /api/v2/data-observability/monitors/{monitor_id}/run`, then
-  `GET /api/v2/data-observability/monitors/runs/{run_id}/status` for the result. Or
-  give the monitor a schedule in the UI: hourly, or a custom cron no more often than
-  every 15 minutes.
+- **A published monitor with a schedule** runs at each scheduled time. Its value
+  shows up 3 to 6 minutes later. Built-in measures (Row Count, Nullness) run through
+  the Agent the same way as Custom SQL.
+- **To see whether the Agent runs a monitor's query,** look at the Agent's
+  `dd.postgres.data_observability.query_executions` metric, by `config_id` and
+  `status`. It counts each query the Agent runs. If a monitor's schedule passes with
+  no new execution, the monitor isn't published or isn't scheduled.
+- **Manual runs don't tell you much.** The Data Observability API's
+  `POST /api/v2/data-observability/monitors/{monitor_id}/run` (in Preview) accepts
+  only unscheduled monitors, and in our deploy every manual run reported "run
+  completed but produced no metric data", even for a monitor that recorded values on
+  its schedule. Publish the monitor, give it a schedule and check its values instead.
 - **Anomaly detection** needs 3 to 7 days of history, including a weekend, before it
   alerts. Create anomaly monitors at least a week before the demo.
-
-In our deploy, the first monitors each recorded one value, at creation. Runs
-triggered later reached the Agent, whose Postgres check reported Data Observability
-query results, but every run's status was "run completed but produced no metric
-data". That needs Datadog support to investigate. Until it's resolved, create the
-monitors the day before and check that each one shows a value.
 
 You can also create them with the monitors API, as type `data-quality alert`. The
 table or column goes in `options.variables[]` by its Data Observability entity ID,
@@ -422,8 +440,10 @@ mart:
 {
   "name": "[contoso_dw] marts.daily_store_sales freshness",
   "type": "data-quality alert",
+  "draft_status": "published",
   "query": "formula(\"query1\").last(\"2h\") > 45",
   "options": {
+    "thresholds": {"critical": 45},
     "variables": [{
       "name": "query1",
       "data_source": "data_quality_metrics",
@@ -431,7 +451,8 @@ mart:
       "group_by": ["entity_id", "table", "schema", "database"],
       "measure": "custom",
       "monitor_options": {
-        "custom_sql": "SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales"
+        "custom_sql": "SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales",
+        "crontab_override": "5,20,35,50 * * * *"
       },
       "schema_version": "0.0.1"
     }]
@@ -439,16 +460,21 @@ mart:
 }
 ```
 
-For the others, change the variable and the query:
+Keep `options.thresholds.critical` equal to the number in the query. For the others,
+change the variable and the query:
 
 - **Other Custom SQL monitors:** change `custom_sql`. For anomaly detection, use
-  `formula("anomalies(query1)").last("2h") > 0` as the query.
-- **Null ratio:** `measure: "nullness"`, with the filter on the column (`search for
-  database_column where ...`) and no `custom_sql`.
+  `formula("anomalies(query1)").last("2h") > 0` as the query, and no thresholds.
+- **Row Count and Null ratio:** `measure: "row_count"` or `measure: "nullness"`, with
+  no `custom_sql` and the time window in `custom_where`. Null ratio's filter points
+  at the column (`search for database_column where ...`).
 - **Source to Target:** put a `source_to_target_config` in `monitor_options`, with
-  `diff_type` (`absolute` or `diff_percent`), `entity_type: "table"`, and a `source`
-  and `target`, each with its `entity_id`, `entity_type` and `custom_sql`. The
-  variable's filter points at the target table.
+  `diff_type: "absolute"`, `entity_type: "database_table"`, and a `source` and
+  `target`, each with its `entity_id` and `entity_type`, plus `custom_where` (or
+  `custom_sql` with `measure: "custom"`). The variable's filter points at the target
+  table. A Source to Target monitor created in the UI saves no `entity_type` on
+  `source_to_target_config` itself; add it before updating the monitor with
+  Datadog's TypeScript SDK, which otherwise rejects the request.
 
 ## Break it on purpose
 
@@ -492,7 +518,9 @@ docs don't cover Data Observability yet, so try each one before you present it.
 ### 1. Dave: a storefront release drops customer IDs
 
 - **Trigger:** `null_customers`.
-- **Wait:** one run, about 2 minutes.
+- **Wait:** one run, about 2 minutes, then up to 15 minutes for the monitor's next
+  check, plus a few minutes for its value. The alert clears by itself an hour later,
+  when the run's orders leave its one-hour window.
 - **Alert:** the null-ratio monitor on `staging.orders.customer_id`.
 - **In Datadog:**
   1. From the monitor, open the table's lineage and go upstream: `staging.orders` ←
@@ -509,18 +537,19 @@ docs don't cover Data Observability yet, so try each one before you present it.
 
 ### 2. Rajesh: a schema change breaks staging
 
-- **Trigger:** `breaking_schema`, just after a scheduled run finishes (around :02,
-  :17, :32 or :47). The next scheduled run puts the column back, and the Job monitor
-  recovers once a run succeeds, so the failure needs to land a few minutes before the
-  next quarter hour. Don't pause the DAG: Airflow doesn't start any run of a paused
-  DAG, including manual ones. For a longer alert, trigger `breaking_schema` twice.
-  The second run breaks the column again after the first one fails.
+- **Trigger:** `breaking_schema` three times in a row, just after a scheduled run
+  finishes (around :02, :17, :32 or :47). The next scheduled run puts the column
+  back, so one failed run is over before the Source to Target monitor's next check.
+  Three queued runs keep staging failing for about 20 minutes, across a check, while
+  raw keeps loading. Each run breaks the column again after the one before it fails.
+  Don't pause the DAG: Airflow doesn't start any run of a paused DAG, including
+  manual ones.
 - **Wait:** 5 to 8 minutes, while `staging_orders` uses up its two retries. In our
   tests the attempts ran 2 minutes apart, and once the last retry started 6 minutes
   late. A run can also wait a few minutes to start if another run is still going.
-- **Alerts:** the Job monitor on `contoso_orders`, then the Source to Target monitor
-  as `staging.orders` falls behind `raw.orders`, then freshness on
-  `marts.daily_store_sales`.
+- **Alerts:** the Job monitor on `contoso_orders`, on the first failed run, then the
+  Source to Target monitor as `staging.orders` falls behind `raw.orders`. Freshness on
+  `marts.daily_store_sales` only follows if the marts go 45 minutes without a rebuild.
 - **In Datadog:**
   1. In Data Jobs Monitoring, open the failed run of `contoso_orders`. The
      `staging_orders` task failed with `column "amount_cents" does not exist`, and
@@ -536,10 +565,14 @@ docs don't cover Data Observability yet, so try each one before you present it.
 
 ### 3. Emily: a load is skipped, then the volume drops
 
-- **Trigger:** `skip_load`, then `volume_drop` on the next run.
-- **Wait:** 45 minutes for freshness to cross its threshold. For a shorter demo,
-  pause the DAG in Airflow and come back later.
-- **Alerts:** freshness on `staging.orders` and `marts.daily_store_sales`.
+- **Trigger:** pause `contoso_orders` in Airflow, so the load stops. A single
+  `skip_load` or `volume_drop` run isn't enough on its own: the next scheduled run
+  loads every waiting batch, 15 minutes later. Unpause it when you're done, and the
+  next run catches up.
+- **Wait:** up to 15 minutes for the row count alert, and about 45 minutes for the
+  freshness alerts. Pause it before the session and come back to it.
+- **Alerts:** the row count on `raw.orders`, then freshness on `staging.orders` and
+  `marts.daily_store_sales`.
 - **In Datadog:**
   1. In Data Jobs Monitoring, the skipped run succeeded but loaded nothing. The
      `ingest_orders` task's lineage shows zero rows written.
@@ -551,8 +584,10 @@ docs don't cover Data Observability yet, so try each one before you present it.
 
 ### 4. Priya: a refund change makes revenue negative
 
-- **Trigger:** `refund_bug`.
-- **Wait:** one run, about 2 minutes.
+- **Trigger:** `refund_bug`, just after a scheduled run finishes (around :31). The
+  bad numbers last only until the next scheduled run rebuilds the mart, so the run
+  has to land before a check (5, 20, 35 or 50 past) and after the run before it.
+- **Wait:** one run, about 2 minutes, then the next check.
 - **Alerts:** the negative-revenue monitor on `marts.daily_store_sales`. The revenue
   anomaly monitor also flags the dip, once it has a week of history.
 - **In Datadog:**
@@ -582,14 +617,14 @@ John doesn't trigger anything. Use him to close each scenario.
 
 | Order | Trigger | Wait | Show |
 |---|---|---|---|
-| 1 | `null_customers` | 2 min | Nullness alert, then lineage up to the topic and down to `customer_value` |
-| 2 | `refund_bug` | 2 min | Negative-revenue alert. Staging is clean, the mart is not |
-| 3 | `breaking_schema`, just after a scheduled run | 5–8 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
-| 4 | Next scheduled run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed run ends. The column is renamed back and staging catches up |
-| 5 | `skip_load` | 45 min | Freshness alerts; trigger it before the session and come back to it |
+| 1 | `null_customers` | Up to 20 min | Nullness alert, then lineage up to the topic and down to `customer_value` |
+| 2 | `refund_bug`, just after a scheduled run | Up to 10 min | Negative-revenue alert. Staging is clean, the mart is not |
+| 3 | `breaking_schema` three times, just after a scheduled run | 5–25 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
+| 4 | Next scheduled run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed runs end. The column is renamed back and staging catches up |
+| 5 | Pause `contoso_orders` | 45 min | Row count, then freshness alerts; pause it before the session and come back to it, then unpause |
 
-Run each trigger separately, because `max_active_runs` is 1: a run waits for the one
-before it.
+Triggers queue, because `max_active_runs` is 1: a run waits for the one before it,
+and manual runs go ahead of a scheduled run that's due later.
 
 ## Optional: Storage Management for the landing zone
 
