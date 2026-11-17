@@ -151,6 +151,9 @@ jobs:
           POSTGRES_SKU_NAME: ${{ vars.POSTGRES_SKU_NAME }}
           POSTGRES_SKU_TIER: ${{ vars.POSTGRES_SKU_TIER }}
           POSTGRES_MAX_CONNECTIONS: ${{ vars.POSTGRES_MAX_CONNECTIONS }}
+          # Datadog Source Code Integration: tagged on every service's telemetry.
+          GIT_REPOSITORY_URL: github.com/${{ github.repository }}
+          GIT_COMMIT_SHA: ${{ github.sha }}
         run: |
           # A changed password or secret key would lock Airflow out of its own
           # database and sessions, and an empty DD_API_KEY turns Datadog off.
@@ -206,14 +209,23 @@ jobs:
           az postgres flexible-server restart -g "$AZURE_RESOURCE_GROUP" -n "$server" -o none
 
       - name: Restart the stream services
-        # They read their code from the share only at startup.
+        # They read their code from the share only at startup. Setting the
+        # commit (Datadog Source Code Integration) makes a new revision, which
+        # restarts them; if the provision already set it, restart instead.
         if: needs.plan.outputs.services_changed == 'true' && vars.ENABLE_ORDER_STREAM == 'true'
         env:
           NAME_PREFIX: ${{ vars.NAME_PREFIX || 'aflo' }}
         run: |
           for app in storefront order-processor; do
             name="$NAME_PREFIX-$app"
-            revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
-            az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
-            echo "Restarted $name ($revision)"
+            current="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" \
+              --query "properties.template.containers[0].env[?name=='DD_GIT_COMMIT_SHA'].value | [0]" -o tsv)"
+            if [ "$current" != "$GITHUB_SHA" ]; then
+              az containerapp update -g "$AZURE_RESOURCE_GROUP" -n "$name" --set-env-vars "DD_GIT_COMMIT_SHA=$GITHUB_SHA" -o none
+              echo "Restarted $name on a new revision for $GITHUB_SHA"
+            else
+              revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
+              az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
+              echo "Restarted $name ($revision)"
+            fi
           done

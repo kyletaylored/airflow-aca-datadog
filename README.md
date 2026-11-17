@@ -191,6 +191,7 @@ you want what it gives you:
 | Azure API spans | A span for each Azure call a task makes, with latency and status | `opentelemetry-instrumentation-requests` (see [Additional instrumentation](#additional-instrumentation)) |
 | ACA Job runs under their task | Each job run nested under the Airflow task that started it in Data Jobs Monitoring, with its datasets in the lineage | This repo's ACA Jobs operator passes the parent IDs; the job sends its own OpenLineage events |
 | Services linked to their container apps | Datadog ties each APM service to its container app | Extend `OTEL_RESOURCE_ATTRIBUTES` as [Datadog's ACA guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/) describes: `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`. Keep `deployment.environment=<env>` too: the managed agent sets Datadog's `env` tag only from that key. |
+| Code links ([Source Code Integration](https://docs.datadoghq.com/source_code/)) | Each APM service linked to its repository and the deployed commit, so Datadog shows the code behind a stack trace or span | With the GitHub integration connected, tag the telemetry with the repository and commit. OpenTelemetry services: add `vcs.repository.url.full=github.com/<owner>/<repo>` and `vcs.ref.head.revision=<commit sha>` to `OTEL_RESOURCE_ATTRIBUTES`. dd-trace services: set `DD_GIT_REPOSITORY_URL` and `DD_GIT_COMMIT_SHA`. This repo's deploy workflow sets them from `github.sha` |
 
 The `datadog` OpenLineage transport needs `apache-airflow-providers-openlineage`
 2.7.3+ (the Airflow 3 image's is newer). On an older provider, replace the first
@@ -308,7 +309,7 @@ They aren't in the Bicep. Don't set either one yourself (see
 | `AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS` | `otel_logging_config.LOGGING_CONFIG` | Airflow apps, when logs are on | Logs. The handler is plugin code on the Azure Files share |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp`, or `none` for a signal that's turned off | Airflow apps | Which signals to send |
 | `OTEL_SERVICE_NAME` | `airflow-aca-<component>` | Each app, with its own value | One service per component |
-| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace` | Each app, with its own value | Ties each service to its container app |
+| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace`, plus `vcs.repository.url.full` and `vcs.ref.head.revision` when `GIT_REPOSITORY_URL` and `GIT_COMMIT_SHA` are set | Each app, with its own value | Ties each service to its container app, and to its repository and commit ([Source Code Integration](https://docs.datadoghq.com/source_code/)) |
 | `_PIP_ADDITIONAL_REQUIREMENTS` | `opentelemetry-instrumentation-requests==0.66b2` | Scheduler, triggerer | Azure API spans |
 
 The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too, but
@@ -376,6 +377,11 @@ azd env set DD_API_KEY "<your-datadog-api-key>"
 azd env set DD_SITE    "datadoghq.com"     # your Datadog site
 azd env set DD_ENV     "airflow-aca"       # env tag and OpenLineage namespace
 
+# Optional: link services to this repository and commit in Datadog
+# (Source Code Integration; needs the GitHub integration). Reset the commit before each deploy.
+azd env set GIT_REPOSITORY_URL "github.com/<owner>/<repo>"
+azd env set GIT_COMMIT_SHA     "$(git rev-parse HEAD)"
+
 azd up
 ```
 
@@ -416,6 +422,12 @@ to `main` deploys based on what changed:
 | `infra/**`, `azure.yaml` | `azd provision`: the Bicep deployment, then the DAG and plugin upload |
 | `airflow/dags/**`, `airflow/plugins/**`, `scripts/upload-dags.sh` | The DAG and plugin upload only |
 | `services/**` | The same upload, then a restart of the order-stream services |
+
+Every deploy tags the services with the merged commit for Datadog's
+[Source Code Integration](https://docs.datadoghq.com/source_code/). An upload-only
+deploy doesn't restart the Airflow apps, so their telemetry keeps the commit of the
+last `infra` deploy until the next one; the order-stream services get the new commit
+when they restart.
 
 Before anything reaches Azure, the workflow runs the CI checks (lint, tests and the
 Bicep build) against the merged commit. If they fail, nothing is deployed.

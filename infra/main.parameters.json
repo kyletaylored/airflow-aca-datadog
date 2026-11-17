@@ -73,6 +73,12 @@
     },
     "postgresMaxConnections": {
       "value": "${POSTGRES_MAX_CONNECTIONS}"
+    },
+    "gitRepositoryUrl": {
+      "value": "${GIT_REPOSITORY_URL}"
+    },
+    "gitCommitSha": {
+      "value": "${GIT_COMMIT_SHA}"
     }
   }
 }
