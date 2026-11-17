@@ -448,20 +448,25 @@
     display: grid;
     gap: 6px;
   }
-  .incident {
+  /* Callouts share one model: square corners and a straight rule on the left,
+     colored by what the callout is. A rounded box would bend the rule. */
+  .incident,
+  .lab,
+  .bits,
+  .callout {
     display: grid;
     gap: 6px;
-    padding: 16px;
-    border-radius: 8px;
-    border-left: 4px solid var(--ui-status-danger);
-    background: var(--ui-status-danger-soft);
+    padding: 12px 16px;
+    border-left: 3px solid var(--rule);
+    background: var(--rule-soft);
+  }
+  .incident {
+    --rule: var(--ui-status-danger);
+    --rule-soft: var(--ui-status-danger-soft);
   }
   .lab {
-    display: grid;
-    gap: 6px;
-    padding: 16px;
-    border-radius: 8px;
-    border: 1px dashed var(--ui-border);
+    --rule: var(--ui-border);
+    --rule-soft: transparent;
   }
   .steps {
     margin: 0;
@@ -494,12 +499,9 @@
     justify-items: start;
   }
   .bits {
-    display: grid;
-    gap: 6px;
+    --rule: var(--ui-ai-primary, var(--ui-interaction-primary));
+    --rule-soft: var(--ui-ai-background-secondary, var(--ui-background-secondary));
     justify-items: start;
-    padding: 16px;
-    border-radius: 8px;
-    background: var(--ui-ai-background-secondary, var(--ui-background-secondary));
   }
 
   .quiz {
@@ -755,11 +757,11 @@
   }
   .pf-node {
     width: 220px;
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 10px 12px 10px 16px;
+    border-radius: 8px;
     border: 1px solid var(--ui-border);
-    border-left: 4px solid var(--accent);
-    background: var(--ui-background);
+    /* The owner color, as a straight bar the corner radius cannot bend. */
+    background: linear-gradient(var(--accent), var(--accent)) left / 4px 100% no-repeat, var(--ui-background);
     color: var(--ui-text);
     font-size: 12px;
     cursor: pointer;
@@ -882,11 +884,10 @@
   .monitor-card {
     display: grid;
     gap: 10px;
-    padding: 16px;
-    border-radius: 10px;
+    padding: 19px 16px 16px;
+    border-radius: 8px;
     border: 1px solid var(--ui-border);
-    border-top: 3px solid var(--ui-status-warning);
-    background: var(--ui-background-secondary);
+    background: linear-gradient(var(--ui-status-warning), var(--ui-status-warning)) top / 100% 3px no-repeat, var(--ui-background-secondary);
   }
   .monitor-head {
     display: flex;
@@ -982,11 +983,10 @@
   .fd-node {
     --tone: var(--ui-border);
     --tone-soft: var(--ui-background);
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 14px 12px 10px;
+    border-radius: 8px;
     border: 1px solid var(--ui-border);
-    border-top: 4px solid var(--tone);
-    background: var(--tone-soft);
+    background: linear-gradient(var(--tone), var(--tone)) top / 100% 4px no-repeat, var(--tone-soft);
     color: var(--ui-text);
     font-size: 12px;
     transition: box-shadow 0.15s;
@@ -1067,12 +1067,8 @@
     color: var(--ui-text-secondary);
   }
   .callout {
-    display: grid;
-    gap: 6px;
-    padding: 16px;
-    border-radius: 8px;
-    border-left: 4px solid var(--ui-interaction-primary);
-    background: var(--ui-background-secondary);
+    --rule: var(--ui-interaction-primary);
+    --rule-soft: var(--ui-background-secondary);
   }
 
   .table-scroll {
