@@ -1,0 +1,131 @@
+<!doctype html>
+<!--
+  The site's share image (Open Graph and Twitter card), 1200 × 630.
+  Rendered to public/og-image.png with headless Chrome; see "Share image" in the README.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+      }
+      body {
+        position: relative;
+        overflow: hidden;
+        padding: 64px 72px;
+        background: #16121f;
+        color: #f4f1fa;
+        font-family: "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      }
+      body::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 92% 8%, rgb(99 44 166 / 55%), transparent 42%),
+          radial-gradient(circle at 0% 100%, rgb(11 138 163 / 25%), transparent 40%);
+      }
+      .content {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 60px;
+        height: 60px;
+        border-radius: 14px;
+        background: #632ca6;
+        font-size: 34px;
+        font-weight: 700;
+      }
+      .brand-name {
+        font-size: 26px;
+        font-weight: 700;
+      }
+      .brand-sub {
+        font-size: 20px;
+        color: #b9b1c9;
+      }
+      h1 {
+        margin-top: 56px;
+        font-size: 72px;
+        line-height: 1.05;
+        letter-spacing: -1px;
+      }
+      .lede {
+        margin-top: 20px;
+        max-width: 900px;
+        font-size: 28px;
+        line-height: 1.35;
+        color: #cfc8dc;
+      }
+      .flow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: auto;
+      }
+      .step {
+        padding: 12px 16px 12px 20px;
+        border-radius: 10px;
+        border: 1px solid #3a3249;
+        background: linear-gradient(var(--c), var(--c)) left / 5px 100% no-repeat, #211b2d;
+        font-size: 19px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .step small {
+        display: block;
+        margin-top: 2px;
+        font-size: 15px;
+        font-weight: 400;
+        color: #a79fb8;
+      }
+      .arrow {
+        color: #6d6380;
+        font-size: 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <div class="brand">
+        <div class="mark">C</div>
+        <div>
+          <div class="brand-name">Contoso data pipeline</div>
+          <div class="brand-sub">Observability by role</div>
+        </div>
+      </div>
+      <h1>Pipeline incidents, by role</h1>
+      <p class="lede">
+        Five roles on one data pipeline, and the Datadog products that detect each incident and identify its cause.
+      </p>
+      <div class="flow">
+        <div class="step" style="--c: #3b7ddd">Storefront<small>Dave</small></div>
+        <span class="arrow">→</span>
+        <div class="step" style="--c: #1f9254">Airflow loads<small>Emily</small></div>
+        <span class="arrow">→</span>
+        <div class="step" style="--c: #c26a00">Warehouse<small>Rajesh</small></div>
+        <span class="arrow">→</span>
+        <div class="step" style="--c: #c2367a">Marts<small>Priya</small></div>
+        <span class="arrow">→</span>
+        <div class="step" style="--c: #0b8aa3">Dashboards<small>John</small></div>
+      </div>
+    </div>
+  </body>
+</html>
