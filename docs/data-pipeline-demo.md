@@ -146,8 +146,8 @@ az postgres flexible-server restart -g <rg> -n "$(azd env get-value postgresServ
 
 Both services run the stock `python:3.12-slim` image. They install their packages at
 startup and run code from the Airflow file share (`services/`), so there's no
-image to build. The deploy workflow uploads `services/` and restarts both apps when it
-changes.
+image to build. The deploy workflow uploads `services/` when it changes, and restarts
+both apps if `ENABLE_ORDER_STREAM` is `true` on the `azure` environment.
 
 **Why these two use dd-trace instead of OpenTelemetry.** Data Streams Monitoring
 needs a Datadog SDK; OpenTelemetry can't produce DSM pathways. So the storefront and
@@ -241,7 +241,7 @@ for app in aflo-storefront aflo-order-processor; do
 done
 ```
 
-For the [deploy workflow](../README.md#continuous-deployment), add the same settings
+For the [deploy workflow](continuous-deployment.md), add the same settings
 to the `azure` GitHub environment. Without them, the next infra deploy turns them
 off. The workflow refuses to run if `ENABLE_DATA_PIPELINE` is set but its password
 isn't.

@@ -8,7 +8,7 @@ Datadog:
 - **Data Jobs Monitoring** through OpenLineage: every DAG run, task, and the ACA
   Job runs those tasks launch, with dataset lineage.
 - **APM** through OpenTelemetry and the ACA managed OTel agent: Airflow's own
-  traces, metrics, and logs, plus a span for every Azure API call a task makes.
+  traces and metrics, plus a span for every Azure API call a task makes.
 
 The Airflow-on-ACA deployment itself (the `azd` template, the ACA Jobs operator,
 managed-identity auth) comes from
@@ -21,7 +21,8 @@ and demo DAGs that show it off.
 [DJM and APM compared](#data-jobs-monitoring-and-apm-compared) ·
 [Airflow 2 and 3](#airflow-2-and-airflow-3-differences) ·
 [Reference configuration](#reference-configuration) ·
-[Deployment](#deployment) · [Known issues](#known-issues)
+[Deployment](#deployment) · [Known issues](#known-issues) ·
+[Repository layout](#repository-layout)
 
 ---
 
@@ -93,7 +94,7 @@ flowchart LR
     end
 
     subgraph dd["Datadog"]
-        apm["APM<br/>traces, metrics, logs"]
+        apm["APM<br/>traces, metrics"]
         djm["Data Jobs Monitoring<br/>DAG, task and job runs, lineage"]
     end
 
@@ -109,7 +110,7 @@ flowchart LR
 Telemetry reaches Datadog by two independent paths:
 
 - **APM:** every Airflow app exports OTLP to the environment's managed
-  OpenTelemetry agent, which forwards traces, metrics and logs to Datadog.
+  OpenTelemetry agent, which forwards traces and metrics to Datadog.
 - **Data Jobs Monitoring:** the OpenLineage listener on the scheduler, where tasks
   run, and each ACA Job execution post OpenLineage events straight to Datadog's
   intake. The agent isn't involved.
@@ -187,11 +188,9 @@ you want what it gives you:
 | Add | What it gives you | How |
 |---|---|---|
 | Airflow metrics | Scheduler heartbeats, executor and pool slots, DAG parse times | `AIRFLOW__METRICS__OTEL_ON=True`, and `--enable-open-telemetry-metrics true` in 2a |
-| Logs with trace ids | Airflow's logs in Datadog, linked to their traces | The log handler in [`otel_logging_config.py`](airflow/plugins/otel_logging_config.py) (see [Additional instrumentation](#additional-instrumentation)) |
 | Azure API spans | A span for each Azure call a task makes, with latency and status | `opentelemetry-instrumentation-requests` (see [Additional instrumentation](#additional-instrumentation)) |
 | ACA Job runs under their task | Each job run nested under the Airflow task that started it in Data Jobs Monitoring, with its datasets in the lineage | This repo's ACA Jobs operator passes the parent IDs; the job sends its own OpenLineage events |
 | Services linked to their container apps | Datadog ties each APM service to its container app | Extend `OTEL_RESOURCE_ATTRIBUTES` as [Datadog's ACA guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/) describes: `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`. Keep `deployment.environment=<env>` too: the managed agent sets Datadog's `env` tag only from that key. |
-| Code links ([Source Code Integration](https://docs.datadoghq.com/source_code/)) | Each APM service linked to its repository and the deployed commit, so Datadog shows the code behind a stack trace or span | With the GitHub integration connected, tag the telemetry with the repository and commit. OpenTelemetry services: add `vcs.repository.url.full=github.com/<owner>/<repo>` and `vcs.ref.head.revision=<commit sha>` to `OTEL_RESOURCE_ATTRIBUTES`, and the same values as `git.repository_url` and `git.commit.sha` (through the ACA managed agent, Datadog only reads the `git.*` names, and otherwise guesses a repository from the service name). dd-trace services: set `DD_GIT_REPOSITORY_URL` and `DD_GIT_COMMIT_SHA`. This repo's deploy workflow sets them from `github.sha` |
 
 The `datadog` OpenLineage transport needs `apache-airflow-providers-openlineage`
 2.7.3+ (the Airflow 3 image's is newer). On an older provider, replace the first
@@ -219,7 +218,7 @@ them together by DAG ID, run ID and task ID.
 | Which operator, owner, tags, params, schedule, run type? | ✅ Attached to every run as tags | Some, as span attributes |
 | Where did the time go *inside* a task: queueing, the scheduler, an API call? | ❌ | ✅ Scheduler/worker/triggerer spans and HTTP client spans (here: each Azure ARM call, with latency and status code) |
 | Is Airflow itself healthy (heartbeats, executor and pool slots, DAG parse time)? | ❌ | ✅ Airflow's OTel metrics |
-| Task logs next to the run | When logs are collected with `source:airflow` | ✅ Logs carrying trace ids (this repo's log handler) |
+| Task logs next to the run | When logs are collected with `source:airflow` | Logs carrying trace ids (this repo's log handler), but only through a Datadog Agent or another collector; see [Known issues](#known-issues) |
 
 **Rule of thumb:** the team that owns the DAGs starts with Data Jobs Monitoring,
 because it is organized around DAGs and data. APM is for the team that runs
@@ -290,10 +289,10 @@ sending the two parent IDs.
 
 **Container Apps environment (not environment variables).** The environment's
 `openTelemetryConfiguration` gives the managed agent a Datadog destination (site
-and API key). It routes traces to that destination, plus metrics and logs if
-`TELEMETRY_SIGNALS` includes them. The agent can't read Key Vault or Container Apps
-secrets, so the key is passed in as a secure deployment parameter and stored on the
-environment.
+and API key). It routes traces to that destination, plus metrics if
+`TELEMETRY_SIGNALS` includes them (for logs, see [Known issues](#known-issues)). The
+agent can't read Key Vault or Container Apps secrets, so the key is passed in as a
+secure deployment parameter and stored on the environment.
 
 **Injected by ACA.** ACA adds `OTEL_EXPORTER_OTLP_ENDPOINT` and
 `OTEL_EXPORTER_OTLP_PROTOCOL` (gRPC) to every app and job, pointing at the agent.
@@ -309,7 +308,7 @@ They aren't in the Bicep. Don't set either one yourself (see
 | `AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS` | `otel_logging_config.LOGGING_CONFIG` | Airflow apps, when logs are on | Logs. The handler is plugin code on the Azure Files share |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp`, or `none` for a signal that's turned off | Airflow apps | Which signals to send |
 | `OTEL_SERVICE_NAME` | `airflow-aca-<component>` | Each app, with its own value | One service per component |
-| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace`, plus `vcs.repository.url.full`, `vcs.ref.head.revision`, `git.repository_url` and `git.commit.sha` when `GIT_REPOSITORY_URL` and `GIT_COMMIT_SHA` are set | Each app, with its own value | Ties each service to its container app, and to its repository and commit ([Source Code Integration](https://docs.datadoghq.com/source_code/)) |
+| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace` | Each app, with its own value | Ties each service to its container app |
 | `_PIP_ADDITIONAL_REQUIREMENTS` | `opentelemetry-instrumentation-requests==0.66b2` | Scheduler, triggerer | Azure API spans |
 
 The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too, but
@@ -320,7 +319,9 @@ the job's code doesn't use it.
 - **Logs.** Airflow has no native OTel logs, so
   [`plugins/otel_logging_config.py`](airflow/plugins/otel_logging_config.py) adds an
   OTLP log handler to Airflow's logging config. Records emitted inside a span carry
-  its trace id, so Datadog links logs and traces.
+  its trace id. The managed agent doesn't deliver them to Datadog yet (see
+  [Known issues](#known-issues)), so the handler only helps with a Datadog Agent or
+  another OTLP collector.
 - **Azure API spans.** The scheduler and triggerer install
   `opentelemetry-instrumentation-requests` at startup (`_PIP_ADDITIONAL_REQUIREMENTS`,
   pinned to the image's OTel SDK), and the operator plugin turns it on. Each ARM call
@@ -347,7 +348,7 @@ the job's code doesn't use it.
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
 | `aca_jobs_pipeline` | Parallel fan-out of N shards over the sample job. |
 | `aca_jobs_example` | A single ACA Job run with overrides. |
-| `contoso_orders` | Optional. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md), which also has the Contoso team's story and five demo scenarios. |
+| `contoso_orders` | Optional, with a one-time `contoso_dw_bootstrap` DAG that creates its tables. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md), which also has the Contoso team's story and five demo scenarios. |
 
 The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has
 data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only
@@ -376,11 +377,6 @@ azd env set AIRFLOW_SECRET_KEY      "$(openssl rand -hex 32)"
 azd env set DD_API_KEY "<your-datadog-api-key>"
 azd env set DD_SITE    "datadoghq.com"     # your Datadog site
 azd env set DD_ENV     "airflow-aca"       # env tag and OpenLineage namespace
-
-# Optional: link services to this repository and commit in Datadog
-# (Source Code Integration; needs the GitHub integration). Reset the commit before each deploy.
-azd env set GIT_REPOSITORY_URL "github.com/<owner>/<repo>"
-azd env set GIT_COMMIT_SHA     "$(git rev-parse HEAD)"
 
 azd up
 ```
@@ -413,107 +409,21 @@ which needs Owner or User Access Administrator. With only Contributor, set
 
 ### Continuous deployment
 
-Merging to `main` doesn't deploy anything until you turn on
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). Once it's on, a push
-to `main` deploys based on what changed:
-
-| Changed paths | What runs |
-|---|---|
-| `infra/**`, `azure.yaml` | `azd provision`: the Bicep deployment, then the DAG and plugin upload |
-| `airflow/dags/**`, `airflow/plugins/**`, `scripts/upload-dags.sh` | The DAG and plugin upload only |
-| `services/**` | The same upload, then a restart of the order-stream services |
-
-Every deploy tags the services with the merged commit for Datadog's
-[Source Code Integration](https://docs.datadoghq.com/source_code/). An upload-only
-deploy doesn't restart the Airflow apps, so their telemetry keeps the commit of the
-last `infra` deploy until the next one; the order-stream services get the new commit
-when they restart.
-
-Before anything reaches Azure, the workflow runs the CI checks (lint, tests and the
-Bicep build) against the merged commit. If they fail, nothing is deployed.
-
-You can also run it by hand from the Actions tab and pick `dags` or `infra`.
-
-The workflow signs in to Azure with OpenID Connect, so no Azure credential is
-stored in GitHub. It reuses the resource group and azd environment from your first
-`azd up`. One-time setup, run from the checkout that has that azd environment:
-
-1. **Create an identity GitHub can sign in as.** It needs a federated credential
-   for the repo's `azure` GitHub environment and Contributor on the resource group:
-
-   ```bash
-   REPO=<owner>/<repo>
-   RG=$(azd env get-value AZURE_RESOURCE_GROUP)
-   SUB=$(azd env get-value AZURE_SUBSCRIPTION_ID)
-   # The subject GitHub puts in the token. Newer repos use an immutable,
-   # ID-based form (repo:owner@123/repo@456), so read it rather than guess.
-   PREFIX=$(gh api "repos/${REPO}/actions/oidc/customization/sub" -q '.sub_claim_prefix // empty')
-   PREFIX=${PREFIX:-repo:${REPO}}
-
-   APP_ID=$(az ad app create --display-name "$REPO-deploy" --query appId -o tsv)
-   az ad sp create --id "$APP_ID"
-   az ad app federated-credential create --id "$APP_ID" --parameters "{
-     \"name\": \"github-azure-environment\",
-     \"issuer\": \"https://token.actions.githubusercontent.com\",
-     \"subject\": \"${PREFIX}:environment:azure\",
-     \"audiences\": [\"api://AzureADTokenExchange\"]
-   }"
-   az role assignment create --assignee "$APP_ID" --role Contributor \
-     --scope "/subscriptions/$SUB/resourceGroups/$RG"
-   ```
-
-2. **Create the `azure` GitHub environment** and copy the settings into it. The
-   secrets are piped from the azd environment, so they never appear in your shell
-   history:
-
-   ```bash
-   gh api -X PUT "repos/$REPO/environments/azure"
-
-   gh variable set AZURE_CLIENT_ID --env azure --repo "$REPO" --body "$APP_ID"
-   gh variable set AZURE_TENANT_ID --env azure --repo "$REPO" --body "$(az account show --query tenantId -o tsv)"
-   for name in AZURE_SUBSCRIPTION_ID AZURE_ENV_NAME AZURE_LOCATION AZURE_RESOURCE_GROUP \
-               DD_SITE DD_ENV DEMO_DAG_SCHEDULE RESOURCE_TAGS POSTGRES_ZONE; do
-     value=$(azd env get-value "$name" 2>/dev/null) && [ -n "$value" ] &&
-       gh variable set "$name" --env azure --repo "$REPO" --body "$value"
-   done
-   for name in DD_API_KEY POSTGRES_ADMIN_PASSWORD AIRFLOW_ADMIN_PASSWORD AIRFLOW_SECRET_KEY; do
-     azd env get-value "$name" | gh secret set "$name" --env azure --repo "$REPO"
-   done
-   ```
-
-   Also copy any other setting you changed from its default, such as
-   `TELEMETRY_SIGNALS`, `NAME_PREFIX`, `POSTGRES_LOCATION`, `POSTGRES_SKU_NAME` or `POSTGRES_MAX_CONNECTIONS`. A
-   setting left out here falls back to its default on the next deploy, so a server
-   you scaled up by hand would be scaled back down.
-
-3. **Optional: require approval.** In the repo's Settings → Environments → `azure`,
-   add yourself as a required reviewer. Each deploy then waits for you to approve it.
-
-4. **Turn it on:**
-
-   ```bash
-   gh variable set AZURE_DEPLOY_ENABLED --repo "$REPO" --body true
-   ```
-
-Things to know:
-
-- **The secrets must keep their original values.** A new Postgres password or
-  Airflow secret key would lock Airflow out of its database and sessions. The
-  workflow fails if any of the four secrets is missing, rather than deploying
-  without them.
-- **The pipeline doesn't assign roles.** Contributor can't create role assignments,
-  so the workflow deploys with `ASSIGN_JOBS_ROLE=false`. The managed identity's role
-  from your first `azd up` stays in place.
-- **GitHub variables can't be empty.** A variable you don't set uses the parameter
-  file's default. Because of that, `DEMO_DAG_SCHEDULE` can't be set to manual-only
-  (an empty string) through the pipeline.
-- **Forks and other repos skip the deploy**, because `AZURE_DEPLOY_ENABLED` isn't set
-  there.
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) can deploy every merge
+to `main`: infra changes run `azd provision`, and DAG or plugin changes only upload
+the files. It runs the CI checks first, signs in to Azure with OpenID Connect, and is
+off until you turn it on. Setup is in
+[docs/continuous-deployment.md](docs/continuous-deployment.md).
 
 ---
 
 ## Known issues
 
+- **Logs don't reach Datadog through the managed agent.** The environment accepts
+  Datadog as a logs destination, and the Airflow apps export OTLP logs, but in this
+  demo none have arrived in Datadog. Use the managed agent for traces and metrics. For
+  logs, collect them with a Datadog Agent, or forward the environment's console logs
+  from Azure Monitor with the Azure integration.
 - **Setting one `OTEL_EXPORTER_OTLP_*` variable turns off ACA's injection.** ACA
   injects the agent's endpoint and protocol only when an app defines none of them.
   Setting just `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` left every app without an
@@ -537,18 +447,21 @@ Things to know:
 
 ```
 ├─ airflow/
-│  ├─ dags/                 # contoso_sales, aca_jobs_pipeline, aca_jobs_example
+│  ├─ dags/                 # the demo DAGs
 │  │  ├─ jobs/              # code the contoso_sales ACA Jobs run (reports OpenLineage)
-│  │  └─ contoso_dw/        # SQL for the optional contoso_orders pipeline
+│  │  └─ contoso_dw/        # SQL and loader for the optional contoso_orders pipeline
 │  └─ plugins/
 │     ├─ operators/         # ACA Jobs operator, ARM helpers, requests instrumentation
 │     ├─ triggers/          # async trigger for deferrable execution
 │     └─ otel_logging_config.py  # OTLP log handler for Airflow's logging
-├─ infra/main.bicep         # ACA environment + managed OTel agent, Airflow apps, sample job
-├─ docs/                    # the optional data pipeline demo
+├─ infra/                   # main.bicep: ACA environment + managed OTel agent, Airflow apps,
+│                           #   sample job, and the optional data pipeline
+├─ docs/                    # the optional data pipeline demo, continuous deployment
 ├─ services/                # storefront and order processor for its order stream
+├─ metabase/                # the pipeline's optional Metabase dashboards
 ├─ site/                    # persona site (Astro + DRUIDS), published to GitHub Pages
-├─ scripts/upload-dags.*    # postprovision: upload DAGs and plugins to the share
+├─ scripts/                 # postprovision upload to the share, Metabase seed
+├─ .github/workflows/       # CI, continuous deployment, the site
 └─ tests/                   # offline unit tests (no Azure, no Datadog)
 ```
 
@@ -558,11 +471,13 @@ and still run Airflow 2.10 without Datadog.
 ## Testing
 
 ```bash
-pip install -e ".[test]"
+pip install -r airflow/requirements.txt pytest openlineage-sql==1.55.0
 pytest
 ```
 
-CI runs the tests and checks that the Bicep compiles.
+`openlineage-sql` is the parser Airflow's OpenLineage provider uses; without it the
+`contoso_dw` lineage tests skip. CI runs the same tests, lints with `ruff`, and checks
+that the Bicep compiles.
 
 ## License and attribution
 
