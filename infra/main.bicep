@@ -463,9 +463,12 @@ var jobLineageEnv = enableDatadog ? [
 var airflowVersion = last(split(airflowImage, ':'))
 
 // Datadog Source Code Integration: the repository and commit on every service's
-// telemetry, so Datadog links stack traces and spans to the code. OpenTelemetry
-// services take them as vcs.* resource attributes; dd-trace reads DD_GIT_*.
-var otelGitAttributes = '${empty(gitRepositoryUrl) ? '' : ',vcs.repository.url.full=${gitRepositoryUrl}'}${empty(gitCommitSha) ? '' : ',vcs.ref.head.revision=${gitCommitSha}'}'
+// telemetry, so Datadog links stack traces and spans to the code. dd-trace reads
+// DD_GIT_*. OpenTelemetry services get Datadog's documented vcs.* resource
+// attributes and also git.repository_url / git.commit.sha: through the Container
+// Apps managed agent, Datadog keeps vcs.* only as custom attributes, and without
+// git.* it infers a repository from the service name (here, the wrong one).
+var otelGitAttributes = '${empty(gitRepositoryUrl) ? '' : ',vcs.repository.url.full=${gitRepositoryUrl},git.repository_url=${gitRepositoryUrl}'}${empty(gitCommitSha) ? '' : ',vcs.ref.head.revision=${gitCommitSha},git.commit.sha=${gitCommitSha}'}'
 var ddGitEnv = concat(
   empty(gitRepositoryUrl) ? [] : [ { name: 'DD_GIT_REPOSITORY_URL', value: gitRepositoryUrl } ],
   empty(gitCommitSha) ? [] : [ { name: 'DD_GIT_COMMIT_SHA', value: gitCommitSha } ]

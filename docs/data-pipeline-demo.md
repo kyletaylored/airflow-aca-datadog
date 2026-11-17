@@ -154,7 +154,7 @@ needs a Datadog SDK; OpenTelemetry can't produce DSM pathways. So the storefront
 the processor run under `ddtrace-run` with `DD_DATA_STREAMS_ENABLED=true`, and send
 to the pipeline's Agent. This is the only part of the repo that uses a Datadog SDK.
 For Source Code Integration they get `DD_GIT_REPOSITORY_URL` and `DD_GIT_COMMIT_SHA`
-(the Airflow apps get the same as `vcs.*` OpenTelemetry resource attributes). When
+(the Airflow apps get the same as OpenTelemetry resource attributes, under both the `vcs.*` and the `git.*` names). When
 only their code changes, the deploy workflow sets the new commit, which restarts
 them on a new revision.
 For open-source languages, DSM supports Kafka and RabbitMQ (Azure Service Bus only
