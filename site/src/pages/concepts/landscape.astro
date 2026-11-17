@@ -163,20 +163,22 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
           <p class="in-demo"><strong>In this demo:</strong> <Rich text={c.inDemo} /></p>
           <div class="tool-cards">
             {toolsFor(c.id).map((t) => (
-              <div class="tool-entry" id={slug(t.name)}>
-                <div class="tool-entry-head">
+              <div class="card tool-entry" id={slug(t.name)}>
+                <div class="card-header tool-entry-head">
                   <Text as="h3" size="md" weight="bold">{t.name}</Text>
                   <span class={`maker maker-${slug(t.maker)}`}>{t.maker}</span>
                   {t.inDemo && <span class="maker maker-demo">In this demo</span>}
                 </div>
-                <Text as="p" size="sm"><Rich text={t.what} /></Text>
-                {t.versus && (
-                  <Text as="p" size="sm" variant="secondary">
-                    <strong>Not to be confused with:</strong> <Rich text={t.versus} />
-                  </Text>
-                )}
+                <div class="card-body">
+                  <Text as="p" size="sm"><Rich text={t.what} /></Text>
+                  {t.versus && (
+                    <Text as="p" size="sm" variant="secondary">
+                      <strong>Not to be confused with:</strong> <Rich text={t.versus} />
+                    </Text>
+                  )}
+                </div>
                 {t.also && (
-                  <div class="also">
+                  <div class="card-footer also">
                     <span>Also provides</span>
                     {t.also.map((a) => <a href={`#${a}`}>{categoryById[a].name}</a>)}
                   </div>

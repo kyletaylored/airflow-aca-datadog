@@ -114,8 +114,7 @@
     align-items: center;
     gap: 4px;
   }
-  .site-nav a,
-  .theme-toggle {
+  .site-nav a {
     padding: 6px 10px;
     border-radius: 6px;
     color: var(--ui-text-secondary);
@@ -123,8 +122,7 @@
     font: inherit;
     font-size: 14px;
   }
-  .site-nav a:hover,
-  .theme-toggle:hover {
+  .site-nav a:hover {
     background: var(--ui-background-tertiary);
     color: var(--ui-text);
   }
@@ -133,11 +131,63 @@
     font-weight: 700;
     background: var(--ui-background-tertiary);
   }
+  /* A light/dark switch: sun on the left, moon on the right, and a thumb that
+     slides over whichever theme is on. */
   .theme-toggle {
-    border: 1px solid var(--ui-border);
+    margin-left: 8px;
+    padding: 2px;
+    border: 0;
+    border-radius: 999px;
     background: transparent;
     cursor: pointer;
-    margin-left: 6px;
+  }
+  .theme-toggle-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 52px;
+    height: 26px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-background-tertiary);
+    color: var(--ui-text-tertiary);
+  }
+  .theme-icon {
+    position: relative;
+    z-index: 1;
+    transition: color 0.2s;
+  }
+  .theme-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--ui-background);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+    transition: transform 0.2s;
+  }
+  .theme-toggle[aria-checked="true"] .theme-toggle-thumb {
+    transform: translateX(26px);
+  }
+  .theme-toggle[aria-checked="false"] .theme-icon-sun,
+  .theme-toggle[aria-checked="true"] .theme-icon-moon {
+    color: var(--ui-text);
+  }
+  .theme-toggle:hover .theme-toggle-track {
+    border-color: var(--ui-text-tertiary);
+  }
+  .theme-toggle:focus-visible {
+    outline: 2px solid var(--ui-interaction-primary);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .theme-toggle-thumb {
+      transition: none;
+    }
   }
 
   /* Sections */
@@ -219,16 +269,41 @@
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px;
   }
+  /* A card is a header, a body and an optional footer, separated by rules. The
+     body grows, so footers line up along a row of cards. */
   .card {
-    display: grid;
-    gap: 12px;
-    align-content: start;
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     border-radius: 12px;
     background: var(--ui-background);
     border: 1px solid var(--ui-border);
     color: var(--ui-text);
     text-decoration: none;
+  }
+  .card-header {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--ui-border);
+  }
+  .card-body {
+    flex: 1;
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    padding: 16px 20px;
+  }
+  .card-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--ui-border);
+    background: var(--ui-background-secondary);
   }
   .persona-card {
     transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
@@ -238,12 +313,7 @@
     box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
     transform: translateY(-1px);
   }
-  .card-top {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
-  .avatar {
+    .avatar {
     flex: none;
     display: block;
     width: 48px;
@@ -284,14 +354,7 @@
     height: 20px;
   }
 
-  .card-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .card-cta {
+    .card-cta {
     font-size: 14px;
     font-weight: 700;
     color: var(--ui-interaction-primary);
@@ -549,10 +612,7 @@
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 16px;
   }
-  .tool-card {
-    justify-items: start;
-  }
-  .used-by {
+    .used-by {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -563,8 +623,12 @@
     font-weight: 700;
     text-decoration: none;
   }
+  .tool-card .card-header {
+    justify-content: space-between;
+  }
   .docs-link {
     font-size: 14px;
+    white-space: nowrap;
   }
 
   .site-footer {
@@ -627,12 +691,10 @@
       font-size: 14px;
     }
     .brand strong,
-    .site-nav a,
-    .theme-toggle {
+    .site-nav a {
       white-space: nowrap;
     }
-    .site-nav a,
-    .theme-toggle {
+    .site-nav a {
       padding: 4px 8px;
       font-size: 13px;
     }
@@ -1124,21 +1186,26 @@
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 12px;
   }
+  /* Compact cards: tighter padding inside a lesson. */
   .tool-entry {
-    display: grid;
-    gap: 6px;
-    align-content: start;
-    padding: 14px;
     border-radius: 10px;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-background-secondary);
     scroll-margin-top: 80px;
   }
+  .tool-entry .card-header,
+  .tool-entry .card-body,
+  .tool-entry .card-footer {
+    padding: 10px 14px;
+  }
+  .tool-entry .card-body {
+    gap: 6px;
+  }
   .tool-entry-head {
-    display: flex;
     flex-wrap: wrap;
-    align-items: center;
     gap: 8px;
+  }
+  .tool-entry .card-footer.also {
+    justify-content: flex-start;
+    gap: 6px;
   }
   .maker {
     padding: 1px 8px;

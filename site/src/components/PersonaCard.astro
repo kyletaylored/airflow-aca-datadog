@@ -15,7 +15,7 @@ const { persona, index } = Astro.props;
 ---
 
 <a class="card persona-card" href={href(`personas/${persona.slug}/`)}>
-  <div class="card-top">
+  <div class="card-header">
     <img class="avatar" src={avatarUri(persona.slug)} alt="" width="48" height="48" />
     <div>
       <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">
@@ -24,15 +24,17 @@ const { persona, index } = Astro.props;
       <Text as="h3" size="lg" weight="bold">{persona.name} · {persona.role}</Text>
     </div>
   </div>
-  <Text as="p" variant="secondary">{persona.owns}.</Text>
-  <div class="card-problem">
-    <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">The incident</Text>
-    <Text as="p" weight="bold">{persona.problem.title}</Text>
+  <div class="card-body">
+    <Text as="p" variant="secondary">{persona.owns}.</Text>
+    <div class="card-problem">
+      <Text as="p" size="xs" variant="tertiary" textTransform="uppercase" weight="bold">The incident</Text>
+      <Text as="p" weight="bold">{persona.problem.title}</Text>
+    </div>
+    <div class="badge-row">
+      {persona.tools.map((t) => <ToolTag tool={t} size="xs" />)}
+    </div>
   </div>
-  <div class="badge-row">
-    {persona.tools.map((t) => <ToolTag tool={t} size="xs" />)}
-  </div>
-  <div class="card-foot">
+  <div class="card-footer">
     <ModuleStatus client:only="react" slug={persona.slug}><span slot="fallback" class="badge-fallback">Not started</span></ModuleStatus>
     <span class="card-cta">Start module →</span>
   </div>
