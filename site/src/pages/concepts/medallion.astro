@@ -8,12 +8,12 @@ import Base from "../../layouts/Base.astro";
 import { href } from "../../lib/site";
 
 const nodes: FlowNode[] = [
-  { id: "events", label: "Event streams", sub: "orders topic", x: 0, y: 0, tone: "stream", detail: { text: "Events land as files in the landing zone first, then load into bronze." } },
-  { id: "saas", label: "SaaS apps and databases", sub: "via connectors or CDC", x: 0, y: 120, tone: "app", width: 200, detail: { text: "In most companies, tools like Fivetran or Airbyte copy these into bronze. The demo's customers come from a generated source instead." } },
-  { id: "files", label: "Files", sub: "exports, logs, partner drops", x: 0, y: 240, tone: "app", detail: { text: "Anything that arrives as a file lands in object storage and loads into bronze unchanged." } },
-  { id: "bronze", label: "Bronze · raw", sub: "raw.orders, raw.customers", x: 300, y: 120, tone: "bronze", width: 200, detail: { text: "Data exactly as it arrived, plus where and when it came from (raw.orders keeps the batch file each order came from, and _loaded_at). Never edited, so everything downstream can be rebuilt from it.", items: ["Append-only", "Source columns and types", "Load metadata", "Kept 14 days in the demo"] } },
-  { id: "silver", label: "Silver · cleaned", sub: "staging.orders, staging.customers", x: 580, y: 120, tone: "silver", width: 220, detail: { text: "Cleaned and conformed: test orders dropped, amount_cents converted to amount_usd, an order_date added, emails trimmed and lowercased. One trusted row per order, checked by check_staging.", items: ["Typed and deduplicated", "Business keys", "Quality checks", "Rebuilt every run"] } },
-  { id: "gold", label: "Gold · business-ready", sub: "marts.daily_store_sales, …", x: 880, y: 120, tone: "gold", width: 220, detail: { text: "Aggregated for a purpose: sales per store per day, value per customer, orders per hour. These are what dashboards, finance and the anomaly monitors read.", items: ["Aggregates and metrics", "Named for the business", "What BI reads"] } },
+  { id: "events", label: "Event streams", sub: "orders topic", x: 0, y: 0, tone: "stream", detail: { text: "Events are first written as files to the landing zone, then loaded into bronze." } },
+  { id: "saas", label: "SaaS apps and databases", sub: "via connectors or CDC", x: 0, y: 120, tone: "app", width: 200, detail: { text: "In most companies, tools such as Fivetran or Airbyte copy these sources into bronze. In this demo, customer data comes from a generated source instead." } },
+  { id: "files", label: "Files", sub: "exports, logs, partner drops", x: 0, y: 240, tone: "app", detail: { text: "Any data delivered as a file is stored in object storage and loaded into bronze unchanged." } },
+  { id: "bronze", label: "Bronze · raw", sub: "raw.orders, raw.customers", x: 300, y: 120, tone: "bronze", width: 200, detail: { text: "Data exactly as it arrived, with its origin and load time recorded (raw.orders retains the source batch file for each order, and _loaded_at). Bronze is never modified, so every downstream layer can be rebuilt from it.", items: ["Append-only", "Source columns and types", "Load metadata", "Kept 14 days in the demo"] } },
+  { id: "silver", label: "Silver · cleaned", sub: "staging.orders, staging.customers", x: 580, y: 120, tone: "silver", width: 220, detail: { text: "Cleaned and conformed: test orders removed, amount_cents converted to amount_usd, an order_date added, and email addresses trimmed and lowercased. The result is one trusted row per order, validated by check_staging.", items: ["Typed and deduplicated", "Business keys", "Quality checks", "Rebuilt every run"] } },
+  { id: "gold", label: "Gold · business-ready", sub: "marts.daily_store_sales, …", x: 880, y: 120, tone: "gold", width: 220, detail: { text: "Aggregated for a specific purpose: sales per store per day, value per customer, and orders per hour. Dashboards, finance and the anomaly monitors read from these tables.", items: ["Aggregates and metrics", "Named for the business", "What BI reads"] } },
   { id: "bi", label: "BI and reports", sub: "Metabase", x: 1180, y: 0, tone: "serve" },
   { id: "ml", label: "Data science", sub: "features, models", x: 1180, y: 120, tone: "serve" },
   { id: "rev", label: "Reverse ETL", sub: "back into the CRM", x: 1180, y: 240, tone: "serve" },
@@ -47,7 +47,7 @@ const etlEdges: FlowEdge[] = [
 
 <Base
   title="Medallion architecture"
-  description="Bronze, silver and gold layers, how this demo's raw, staging and marts schemas map to them, and ETL compared with ELT."
+  description="The bronze, silver and gold layers, their correspondence to this demo's raw, staging and marts schemas, and a comparison of ETL and ELT."
 >
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
@@ -55,45 +55,45 @@ const etlEdges: FlowEdge[] = [
       <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 2 of 3</Text>
       <Text as="h1" size="xxl" weight="bold">Medallion architecture</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
-        A medallion architecture organizes a warehouse or lakehouse into three layers, each more refined than the last:
-        bronze, silver and gold. Databricks popularized the name; the idea is older and goes by other names. This demo
-        already uses it, under the names dbt made common.
+        A medallion architecture organizes a warehouse or lakehouse into three layers of increasing refinement: bronze,
+        silver and gold. Databricks popularized the term, although the pattern predates it and appears under other names.
+        This demo already follows the pattern, using the layer names that dbt made standard.
       </Text>
     </header>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">Three layers, and this demo's tables in each</Text>
-      <Text as="p">Select a layer to see what belongs in it.</Text>
+      <Text as="h2" size="lg" weight="bold">The three layers and the demo tables in each</Text>
+      <Text as="p">Select a layer to view its contents and purpose.</Text>
       <Diagram nodes={nodes} edges={edges} height={380} initial="bronze" />
       <div class="table-scroll">
       <table class="data-table">
         <thead>
-          <tr><th>Medallion layer</th><th>dbt-style name</th><th>In this demo</th><th>Owned by</th></tr>
+          <tr><th>Medallion layer</th><th>dbt-style name</th><th>In this demo</th><th>Ownership</th></tr>
         </thead>
         <tbody>
-          <tr><td><span class="layer layer-bronze">Bronze</span></td><td>raw, landing, source</td><td><code>raw.orders</code>, <code>raw.customers</code></td><td>Emily loads it; Rajesh designs it</td></tr>
-          <tr><td><span class="layer layer-silver">Silver</span></td><td>staging, intermediate</td><td><code>staging.orders</code>, <code>staging.customers</code></td><td>Emily builds it; Rajesh designs it</td></tr>
-          <tr><td><span class="layer layer-gold">Gold</span></td><td>marts, presentation</td><td><code>marts.daily_store_sales</code>, <code>marts.customer_value</code>, <code>marts.hourly_order_volume</code></td><td>Priya's logic; John's dashboards read it</td></tr>
+          <tr><td><span class="layer layer-bronze">Bronze</span></td><td>raw, landing, source</td><td><code>raw.orders</code>, <code>raw.customers</code></td><td>Loaded by Emily; designed by Rajesh</td></tr>
+          <tr><td><span class="layer layer-silver">Silver</span></td><td>staging, intermediate</td><td><code>staging.orders</code>, <code>staging.customers</code></td><td>Built by Emily; designed by Rajesh</td></tr>
+          <tr><td><span class="layer layer-gold">Gold</span></td><td>marts, presentation</td><td><code>marts.daily_store_sales</code>, <code>marts.customer_value</code>, <code>marts.hourly_order_volume</code></td><td>Business logic by Priya; read by John's dashboards</td></tr>
         </tbody>
       </table>
       </div>
       <Text as="p" size="sm" variant="secondary">
-        The landing zone in front of bronze (files in object storage) is sometimes counted as its own layer. Some teams also
-        add a platinum or semantic layer on top of gold for shared metric definitions.
+        The landing zone that precedes bronze (files in object storage) is sometimes treated as a separate layer. Some teams
+        also add a platinum or semantic layer above gold to hold shared metric definitions.
       </Text>
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">Why layer at all?</Text>
+      <Text as="h2" size="lg" weight="bold">The purpose of layering</Text>
       <dl class="benefits">
-        <dt>You can always rebuild</dt>
-        <dd>Bronze is never edited, so a bug in the cleaning logic is fixed by rerunning silver and gold, not by asking the source to resend.</dd>
-        <dt>Each layer answers one question</dt>
-        <dd>"Did the data arrive?" is a bronze question; "is it correct?" is silver; "does the business number make sense?" is gold. That's also how the demo's monitors are split.</dd>
-        <dt>Problems stay where they start</dt>
-        <dd><Rich text="check_staging stops bad rows before the marts are built, and lineage across the layers shows which mart a bad raw column reaches." /></dd>
-        <dt>Different people, different layers</dt>
-        <dd>Engineers live in bronze and silver; analysts and BI tools read gold, with names and grain that make sense to the business.</dd>
+        <dt>Every layer can be rebuilt</dt>
+        <dd>Because bronze is never modified, a defect in the cleaning logic is corrected by rebuilding silver and gold, without requesting that the source resend data.</dd>
+        <dt>Each layer addresses one question</dt>
+        <dd>Whether the data arrived is a bronze concern; whether it is correct is a silver concern; whether the business figures are plausible is a gold concern. The demo's monitors are divided along the same lines.</dd>
+        <dt>Problems are contained at their source</dt>
+        <dd><Rich text="check_staging halts the run on invalid rows before the marts are built, and lineage across the layers shows which mart a faulty raw column affects." /></dd>
+        <dt>Each audience works in its own layer</dt>
+        <dd>Engineers work primarily in bronze and silver; analysts and BI tools read gold, where names and granularity reflect business terms.</dd>
       </dl>
     </section>
 
@@ -102,13 +102,14 @@ const etlEdges: FlowEdge[] = [
       <Diagram nodes={etlNodes} edges={etlEdges} height={260} />
       <Text as="p">
         <strong>ETL</strong> (top) transforms data in a separate tool before it reaches the warehouse, so only cleaned data
-        lands. It was the norm when warehouse compute was expensive, and it's what SSIS, and many Glue and Data Factory jobs,
-        do. <strong>ELT</strong> (bottom) loads the raw data first and transforms it with SQL inside the warehouse, which is
-        cheap and elastic now. That's what Fivetran or Airbyte plus dbt do, and what this demo does: Airflow loads the
-        files into bronze, then runs SQL to build silver and gold.
+        is stored. It was the standard approach when warehouse compute was expensive, and it remains the model for SSIS and
+        for many Glue and Data Factory jobs. <strong>ELT</strong> (bottom) loads the raw data first and transforms it with
+        SQL inside the warehouse, where compute is now inexpensive and elastic. This is the model for Fivetran or Airbyte
+        combined with dbt, and it is the model this demo follows: Airflow loads the files into bronze, then runs SQL to
+        build silver and gold.
       </Text>
       <Text as="p">
-        The medallion layers come naturally with ELT: the L lands bronze, and each T builds the next layer.
+        The medallion layers align naturally with ELT: the load step populates bronze, and each transformation step builds the next layer.
       </Text>
     </section>
 

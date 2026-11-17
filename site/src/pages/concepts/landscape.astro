@@ -27,7 +27,7 @@ const place: Record<CategoryId, { x: number; y: number; tone: Tone }> = {
   orchestration: { x: 840, y: 400, tone: "control" },
 };
 const mapNodes: FlowNode[] = [
-  { id: "apps", label: "Apps and SaaS tools", sub: "where data is created", x: 0, y: 100, tone: "app", detail: { text: "Websites, mobile apps, payment and CRM systems, devices. Everything starts here." } },
+  { id: "apps", label: "Apps and SaaS tools", sub: "where data is created", x: 0, y: 100, tone: "app", detail: { text: "Websites, mobile applications, payment and CRM systems, and devices: the systems where data originates." } },
   ...categories.map((c) => ({
     id: c.id,
     label: c.name,
@@ -55,15 +55,15 @@ const mapEdges: FlowEdge[] = [
 // Queues, pub/sub and streams, side by side.
 const patternNodes: FlowNode[] = [
   { id: "qp", label: "Producer", x: 0, y: 60, tone: "app", width: 130 },
-  { id: "q", label: "Queue", sub: "SQS, Service Bus, RabbitMQ", x: 210, y: 60, tone: "stream", width: 210, detail: { text: "Each message goes to one worker, and is deleted once that worker acknowledges it. Add workers to share the load; failed messages retry, then move to a dead-letter queue." } },
+  { id: "q", label: "Queue", sub: "SQS, Service Bus, RabbitMQ", x: 210, y: 60, tone: "stream", width: 210, detail: { text: "Each message is delivered to one worker and deleted once that worker acknowledges it. Additional workers share the load; failed messages are retried, then moved to a dead-letter queue." } },
   { id: "qa", label: "Worker A", sub: "takes message 1", x: 510, y: 0, tone: "process", width: 150 },
   { id: "qb", label: "Worker B", sub: "takes message 2", x: 510, y: 120, tone: "process", width: 150 },
   { id: "pp", label: "Publisher", x: 0, y: 280, tone: "app", width: 130 },
-  { id: "t", label: "Topic", sub: "SNS, Pub/Sub, Service Bus topics", x: 210, y: 280, tone: "stream", width: 210, detail: { text: "Each message is copied to every subscription: fan-out. SNS pushes the copies immediately and keeps none, so subscribers that need buffering put an SQS queue behind their subscription; Service Bus and Pub/Sub keep each subscription's copy until it's read." } },
+  { id: "t", label: "Topic", sub: "SNS, Pub/Sub, Service Bus topics", x: 210, y: 280, tone: "stream", width: 210, detail: { text: "Each message is copied to every subscription (fan-out). SNS pushes the copies immediately and retains none, so subscribers that require buffering place an SQS queue behind their subscription; Service Bus and Pub/Sub retain each subscription's copy until it is read." } },
   { id: "ta", label: "Email", sub: "gets a copy", x: 510, y: 220, tone: "process", width: 150 },
   { id: "tb", label: "Analytics", sub: "gets a copy", x: 510, y: 340, tone: "process", width: 150 },
   { id: "sp", label: "Producer", x: 0, y: 500, tone: "app", width: 130 },
-  { id: "s", label: "Stream", sub: "Kafka, Event Hubs, Kinesis", x: 210, y: 500, tone: "stream", width: 210, detail: { text: "An ordered, partitioned log that keeps every event for its retention period. Each consumer group reads at its own position and can rewind. This is what the demo's orders topic is." } },
+  { id: "s", label: "Stream", sub: "Kafka, Event Hubs, Kinesis", x: 210, y: 500, tone: "stream", width: 210, detail: { text: "An ordered, partitioned log that retains every event for its retention period. Each consumer group reads from its own position and can rewind. The demo's orders topic is a stream of this kind." } },
   { id: "sa", label: "Consumer group A", sub: "at the latest event", x: 510, y: 440, tone: "process", width: 170 },
   { id: "sb", label: "Consumer group B", sub: "replaying from yesterday", x: 510, y: 560, tone: "process", width: 170 },
 ];
@@ -84,7 +84,7 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
 
 <Base
   title="The data tool landscape"
-  description="Common data tools grouped by the job they do, with each cloud's version of the same job side by side."
+  description="Common data tools grouped by function, with each cloud provider's equivalent service shown side by side."
 >
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
@@ -92,31 +92,31 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
       <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 3 of 3</Text>
       <Text as="h1" size="xxl" weight="bold">The data tool landscape</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
-        Most of the confusion comes from one fact: the same job is sold by every cloud, by independent vendors and by open
-        source projects, each under its own name. Group the tools by the job they do and the list gets much shorter.
+        Much of the apparent complexity has a single cause: the same function is offered by every cloud provider, by
+        independent vendors and by open source projects, each under a different name. Grouped by function, the list becomes
+        considerably shorter.
       </Text>
     </header>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">The jobs, in the order data flows</Text>
-      <Text as="p">Select a job to see what it does and which tools do it.</Text>
-      <Diagram nodes={mapNodes} edges={mapEdges} height={520} initial="warehouse" hint="Select a job to see what it does and which tools do it." />
+      <Text as="h2" size="lg" weight="bold">Functions in order of data flow</Text>
+      <Text as="p">Select a function to view its purpose and the tools that provide it.</Text>
+      <Diagram nodes={mapNodes} edges={mapEdges} height={520} initial="warehouse" hint="Select a function to view its purpose and the tools that provide it." />
       <Text as="p" size="sm" variant="secondary">
-        Observability sits across all of it: Datadog watches the services, the streams, the jobs, the tables and the
-        database. See <a href={href("tools/")}>the Datadog tools</a>.
+        Observability spans every function: Datadog monitors the services, streams, jobs, tables and database. See <a href={href("tools/")}>the Datadog tools</a>.
       </Text>
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">Same job, different vendor</Text>
+      <Text as="h2" size="lg" weight="bold">Equivalent services by vendor</Text>
       <Text as="p">
-        Read across a row to find each vendor's version of the same thing. Names in parentheses are well-known managed
-        versions that aren't covered below.
+        Each row lists every vendor's offering for one function. Names in parentheses are widely used managed services
+        that are not described in detail below.
       </Text>
       <div class="table-scroll">
         <table class="data-table matrix">
           <thead>
-            <tr><th>Job</th>{makers.map((m) => <th>{m}</th>)}</tr>
+            <tr><th>Function</th>{makers.map((m) => <th>{m}</th>)}</tr>
           </thead>
           <tbody>
             {
@@ -133,10 +133,10 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">Streams, queues and pub/sub are different tools</Text>
+      <Text as="h2" size="lg" weight="bold">Streams, queues and publish/subscribe</Text>
       <Text as="p">
-        Kafka, RabbitMQ, SQS, SNS, Service Bus, Event Hubs and Pub/Sub all move messages, so they're easy to lump together.
-        They make different promises. Select the middle box in each row.
+        Kafka, RabbitMQ, SQS, SNS, Service Bus, Event Hubs and Pub/Sub all transport messages and are often grouped
+        together, but they provide different guarantees. Select the center box in each row for details.
       </Text>
       <Diagram nodes={patternNodes} edges={patternEdges} height={560} initial="s" />
       <div class="table-scroll">
@@ -146,9 +146,9 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
         </thead>
         <tbody>
           <tr><th scope="row">Each message goes to</th><td>One worker</td><td>Every subscriber</td><td>Every consumer group</td></tr>
-          <tr><th scope="row">After it's read</th><td>Deleted</td><td>Each subscription's copy is deleted (SNS keeps none at all)</td><td>Kept until retention ends</td></tr>
-          <tr><th scope="row">Replay</th><td>No</td><td>Usually no (Google Pub/Sub can seek back)</td><td>Yes, from any position</td></tr>
-          <tr><th scope="row">Good for</th><td>Jobs and commands: "charge this card"</td><td>Notifications: "an order was placed"</td><td>Event history and pipelines: every order, for every reader</td></tr>
+          <tr><th scope="row">After a message is read</th><td>Deleted</td><td>Each subscription's copy is deleted (SNS retains none)</td><td>Kept until retention ends</td></tr>
+          <tr><th scope="row">Replay</th><td>No</td><td>Generally no (Google Pub/Sub supports seeking back)</td><td>Yes, from any position</td></tr>
+          <tr><th scope="row">Typical use</th><td>Tasks and commands, such as charging a card</td><td>Notifications, such as an order being placed</td><td>Event history and pipelines: every order, available to every reader</td></tr>
         </tbody>
       </table>
       </div>
@@ -177,7 +177,7 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
                 )}
                 {t.also && (
                   <div class="also">
-                    <span>Also does</span>
+                    <span>Also provides</span>
                     {t.also.map((a) => <a href={`#${a}`}>{categoryById[a].name}</a>)}
                   </div>
                 )}
@@ -186,7 +186,7 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
           </div>
           {alsoFor(c.id).length > 0 && (
             <div class="also">
-              <span>Also does this job</span>
+              <span>Also provided by</span>
               {alsoFor(c.id).map((t) => <a href={`#${slug(t.name)}`}>{t.name}</a>)}
             </div>
           )}
@@ -195,10 +195,10 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
     }
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">The platforms that do several jobs</Text>
+      <Text as="h2" size="lg" weight="bold">Platforms that span several functions</Text>
       <Text as="p">
-        Some products are bundles, which is why they show up in more than one row. When one of these comes up, ask which
-        part of it a team actually uses.
+        Some products bundle several functions, which is why they appear in more than one row. When one of these products
+        is in use, it is worth establishing which of its components a team actually relies on.
       </Text>
       <ul class="ticks">
         {spanning.map((t) => (

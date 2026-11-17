@@ -7,14 +7,14 @@ import { href } from "../../lib/site";
 
 <Base
   title="Data engineering concepts"
-  description="Why companies build data pipelines, the medallion architecture, and the data tool landscape grouped by job."
+  description="The rationale for distributed data pipelines, the medallion architecture, and the data tool landscape grouped by function."
 >
   <section class="hero hero-compact">
     <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Background</Text>
     <Text as="h1" size="xxl" weight="bold">Data engineering concepts</Text>
     <Text as="p" size="lg" variant="secondary" className="lede">
-      The persona modules assume some background: why a company builds a pipeline at all, how the warehouse is layered,
-      and what all those product names do. Start here if any of that is new.
+      The persona modules assume familiarity with three topics: the rationale for building a data pipeline, the layered
+      structure of a warehouse, and the purpose of the major data products. These lessons cover each topic.
     </Text>
   </section>
 
@@ -32,7 +32,7 @@ import { href } from "../../lib/site";
             <Text as="p" variant="secondary">
               {l.summary}
             </Text>
-            <span class="card-cta">Read →</span>
+            <span class="card-cta">Read the lesson →</span>
           </a>
         ))
       }
@@ -40,7 +40,7 @@ import { href } from "../../lib/site";
   </section>
 
   <section class="lesson">
-    <Text as="h2" size="lg" weight="bold">Terms you'll meet</Text>
+    <Text as="h2" size="lg" weight="bold">Glossary</Text>
     <dl class="benefits glossary">
       {
         glossary.map((g) => (

@@ -8,11 +8,11 @@ import Base from "../../layouts/Base.astro";
 import { href } from "../../lib/site";
 
 const oneDbNodes: FlowNode[] = [
-  { id: "app", label: "Storefront", sub: "the web shop", x: 0, y: 100, tone: "app", detail: { text: "Writes each order straight into the database as part of checkout. Simple, and correct for a small shop." } },
-  { id: "db", label: "Orders database", sub: "PostgreSQL or SQL Server", x: 260, y: 100, tone: "store", width: 200, detail: { text: "Everything reads and writes here: checkout, reports, exports and other services. Every new reader adds load to the database that takes orders, and a slow report can slow checkout." } },
-  { id: "dash", label: "Dashboards", sub: "scan the live tables", x: 560, y: 0, tone: "serve", detail: { text: "Analytical queries read months of orders at once. On a row-oriented database tuned for checkout, they're slow and they compete with the app for CPU, memory and locks." } },
-  { id: "finance", label: "Finance export", sub: "nightly CSV", x: 560, y: 110, tone: "serve", detail: { text: "Each export is custom code against the app's tables. Rename a column for the app and the export breaks, usually discovered at month end." } },
-  { id: "email", label: "Email service", sub: "polls for new orders", x: 560, y: 220, tone: "app", detail: { text: "Polling the orders table every few seconds is more load, and couples the email service to the storefront's schema." } },
+  { id: "app", label: "Storefront", sub: "the web shop", x: 0, y: 100, tone: "app", detail: { text: "Writes each order directly to the database during checkout. This design is simple and appropriate for a small business." } },
+  { id: "db", label: "Orders database", sub: "PostgreSQL or SQL Server", x: 260, y: 100, tone: "store", width: 200, detail: { text: "Checkout, reporting, exports and other services all read from and write to this database. Each additional reader adds load to the system that accepts orders, so a slow report can degrade checkout." } },
+  { id: "dash", label: "Dashboards", sub: "scan the live tables", x: 560, y: 0, tone: "serve", detail: { text: "Analytical queries read months of orders at once. On a row-oriented database tuned for checkout, these queries are slow and compete with the application for CPU, memory and locks." } },
+  { id: "finance", label: "Finance export", sub: "nightly CSV", x: 560, y: 110, tone: "serve", detail: { text: "Each export is custom code written against the application's tables. Renaming a column for the application breaks the export, and the failure is often discovered only at month end." } },
+  { id: "email", label: "Email service", sub: "polls for new orders", x: 560, y: 220, tone: "app", detail: { text: "Polling the orders table every few seconds adds further load and couples the email service to the storefront's schema." } },
 ];
 const oneDbEdges: FlowEdge[] = [
   { from: "app", to: "db", label: "writes" },
@@ -22,14 +22,14 @@ const oneDbEdges: FlowEdge[] = [
 ];
 
 const pipeNodes: FlowNode[] = [
-  { id: "app", label: "Storefront", sub: "publishes order events", x: 0, y: 0, tone: "app", detail: { text: "Checkout publishes one event per order and moves on. The storefront doesn't know or care who reads it, and keeps taking orders when a reader is down." } },
-  { id: "topic", label: "orders topic", sub: "event stream", x: 250, y: 0, tone: "stream", detail: { text: "Holds every order event for a retention period. Each reader keeps its own position, so a new reader can start from the past, and a broken one can catch up after it's fixed." } },
-  { id: "proc", label: "Order processor", sub: "validates, batches", x: 500, y: 0, tone: "process", detail: { text: "Turns the stream into files every few minutes. Commits its position only after a file is written, so a crash replays a batch instead of losing it." } },
-  { id: "lake", label: "Landing zone", sub: "files by date and hour", x: 750, y: 0, tone: "store", detail: { text: "Raw files in cheap storage, kept as they arrived. If a transformation turns out to be wrong, the warehouse can be rebuilt from here." } },
-  { id: "dw", label: "Warehouse", sub: "raw → staging → marts", x: 750, y: 170, tone: "store", width: 190, detail: { text: "A separate analytical store, built every 15 minutes by the orchestrator. Heavy queries run here, never on the storefront's database." } },
-  { id: "bi", label: "Dashboards", sub: "read the marts", x: 500, y: 170, tone: "serve", detail: { text: "Read clean, modeled tables with agreed definitions, instead of reverse-engineering the app's schema." } },
-  { id: "email", label: "Email service", sub: "its own subscription", x: 250, y: 170, tone: "muted", detail: { text: "Another reader of the same events, with its own position. Adding it doesn't touch the storefront or the warehouse. (Illustrative: not in this demo.)" } },
-  { id: "fraud", label: "Fraud check", sub: "reacts in seconds", x: 0, y: 170, tone: "muted", detail: { text: "Streaming lets some readers react in real time while the warehouse loads in batches. (Illustrative: not in this demo.)" } },
+  { id: "app", label: "Storefront", sub: "publishes order events", x: 0, y: 0, tone: "app", detail: { text: "Checkout publishes one event per order and continues. The storefront has no knowledge of its readers, and it continues to accept orders when a reader is unavailable." } },
+  { id: "topic", label: "orders topic", sub: "event stream", x: 250, y: 0, tone: "stream", detail: { text: "Retains every order event for a defined period. Each reader tracks its own position, so a new reader can begin from earlier events and a failed reader can resume after it is repaired." } },
+  { id: "proc", label: "Order processor", sub: "validates, batches", x: 500, y: 0, tone: "process", detail: { text: "Converts the stream into files every few minutes. It commits its position only after a file is written, so a crash causes a batch to be replayed rather than lost." } },
+  { id: "lake", label: "Landing zone", sub: "files by date and hour", x: 750, y: 0, tone: "store", detail: { text: "Raw files in low-cost storage, retained as they arrived. If a transformation proves incorrect, the warehouse can be rebuilt from these files." } },
+  { id: "dw", label: "Warehouse", sub: "raw → staging → marts", x: 750, y: 170, tone: "store", width: 190, detail: { text: "A separate analytical store, rebuilt every 15 minutes by the orchestrator. Heavy queries run here and never against the storefront's database." } },
+  { id: "bi", label: "Dashboards", sub: "read the marts", x: 500, y: 170, tone: "serve", detail: { text: "Read clean, modeled tables with agreed definitions, rather than depending on the application's internal schema." } },
+  { id: "email", label: "Email service", sub: "its own subscription", x: 250, y: 170, tone: "muted", detail: { text: "An additional reader of the same events, with its own position. Adding it requires no change to the storefront or the warehouse. (Illustrative; not part of this demo.)" } },
+  { id: "fraud", label: "Fraud check", sub: "reacts in seconds", x: 0, y: 170, tone: "muted", detail: { text: "Streaming allows some readers to react in near real time while the warehouse loads in batches. (Illustrative; not part of this demo.)" } },
 ];
 const pipeEdges: FlowEdge[] = [
   { from: "app", to: "topic", label: "per order" },
@@ -43,97 +43,98 @@ const pipeEdges: FlowEdge[] = [
 ---
 
 <Base
-  title="Why build a pipeline like this?"
-  description="One database compared with a delegated, event-driven pipeline: what the moving parts buy, and what they cost."
+  title="The case for a distributed pipeline"
+  description="A single shared database compared with a distributed, event-driven pipeline: the benefits of the additional components, and their costs."
 >
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
     <header class="hero hero-compact">
       <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 1 of 3</Text>
-      <Text as="h1" size="xxl" weight="bold">Why build a pipeline like this?</Text>
+      <Text as="h1" size="xxl" weight="bold">The case for a distributed pipeline</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
-        Contoso could write every order into one database and point the dashboards at it. Many companies start there,
-        and some should stay. This lesson is about what changes as a business grows, and why the demo's pipeline looks
-        the way it does.
+        Contoso could write every order to a single database and connect its dashboards directly to it. Many companies
+        begin with that design, and for some it remains the right one. This lesson describes what changes as a business
+        grows, and explains the structure of the demo's pipeline.
       </Text>
     </header>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">The simple version: one database for everything</Text>
+      <Text as="h2" size="lg" weight="bold">The baseline: a single shared database</Text>
       <Text as="p">
-        The storefront writes orders into its database, and everything else reads from the same place. Select a box to see
-        where the strain shows up.
+        The storefront writes orders to its database, and every other consumer reads from the same place. Select a box to
+        see where the strain appears.
       </Text>
       <Diagram nodes={oneDbNodes} edges={oneDbEdges} height={320} initial="db" />
       <Text as="p">
-        This works until it doesn't. The database that takes orders is tuned for many small, fast transactions (OLTP). A
-        dashboard that sums a year of orders wants the opposite: big scans and aggregates (OLAP). Put both on one server
-        and the reports slow checkout, every new consumer is coupled to the app's tables, and there's no record of what
-        the data looked like before the last bad update.
+        This design holds up only to a point. A database that accepts orders is tuned for many small, fast transactions
+        (OLTP). A dashboard that sums a year of orders requires the opposite: large scans and aggregates (OLAP). When both
+        workloads share one server, reporting slows checkout, every new consumer depends on the application's tables, and
+        no record remains of the data's state before the most recent faulty update.
       </Text>
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">The delegated version: each step has one job and one owner</Text>
+      <Text as="h2" size="lg" weight="bold">The distributed model: one responsibility and one owner per step</Text>
       <Text as="p">
-        This is the demo's shape. The storefront announces each order as an event; independent readers take it from there.
-        Dashed boxes are readers a company might add later; they aren't part of the demo.
+        The demo follows this model. The storefront publishes each order as an event, and independent readers process it
+        from there. Dashed boxes represent readers a company might add later; they are not part of the demo.
       </Text>
       <Diagram nodes={pipeNodes} edges={pipeEdges} height={340} initial="topic" />
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">What the extra parts buy</Text>
+      <Text as="h2" size="lg" weight="bold">Benefits of the additional components</Text>
       <dl class="benefits">
-        <dt>The app stays fast</dt>
-        <dd>Analytical queries run on a separate warehouse built for them, never on the database that takes orders.</dd>
+        <dt>Application performance is protected</dt>
+        <dd>Analytical queries run on a separate warehouse designed for them, never on the database that accepts orders.</dd>
         <dt>Producers and consumers are decoupled</dt>
         <dd>
-          The storefront publishes once. Adding a reader (email, fraud, a new warehouse) means a new subscription, not a
-          change to the storefront, and a reader that's down doesn't stop checkout.
+          The storefront publishes each event once. Adding a reader (email, fraud detection, a new warehouse) requires a new
+          subscription rather than a change to the storefront, and an unavailable reader does not interrupt checkout.
         </dd>
-        <dt>Nothing is lost, and anything can be replayed</dt>
+        <dt>Data is retained and can be replayed</dt>
         <dd>
-          The stream keeps events for a retention period, and the landing zone keeps every raw file. Fix a bug in the
-          transformation and rebuild from the raw data; nobody has to ask the storefront to resend.
+          The stream retains events for a defined period, and the landing zone retains every raw file. A defect in a
+          transformation is corrected by rebuilding from the raw data, without requesting that the storefront resend it.
         </dd>
         <dt>Each team owns one step</dt>
         <dd>
-          Dave owns the order event, Emily the loads, Rajesh the schemas, Priya the business logic, John the reports.
-          Each hands off through a contract (a message shape, a table, a column's meaning), so teams can change their own
-          step without coordinating every release.
+          Dave owns the order event, Emily the loads, Rajesh the schemas, Priya the business logic and John the reports.
+          Each step hands off through a contract (a message format, a table, the meaning of a column), so each team can
+          change its own step without coordinating every release.
         </dd>
-        <dt>Each step scales on its own</dt>
+        <dt>Each step scales independently</dt>
         <dd>
-          Storage is cheap and separate from compute. A slow mart build gets more compute without touching ingestion, and
-          a traffic spike buffers in the stream instead of overwhelming the warehouse.
+          Storage is inexpensive and separate from compute. A slow mart build receives additional compute without affecting
+          ingestion, and a traffic spike is absorbed by the stream rather than overwhelming the warehouse.
         </dd>
-        <dt>Real time where it matters, batch where it's cheaper</dt>
+        <dt>Real-time and batch processing coexist</dt>
         <dd>
-          The same events can feed a fraud check in seconds and the warehouse every 15 minutes.
+          The same events can feed a fraud check within seconds and the warehouse every 15 minutes.
         </dd>
       </dl>
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">What they cost</Text>
+      <Text as="h2" size="lg" weight="bold">Costs and trade-offs</Text>
       <ul class="ticks">
-        <li><Rich text="More moving parts, run by more people: a stream, a processor, storage, an orchestrator, a warehouse and a BI tool, each of which can fail on its own." /></li>
-        <li><Rich text="Latency: the demo's dashboards are up to about 20 minutes behind checkout, where the one-database version was live." /></li>
-        <li><Rich text="Failures get quieter. A run can succeed and load nothing, a schema change two steps upstream can break a report, and a logic bug can produce plausible wrong numbers." /></li>
-        <li><Rich text="Contracts need care. A field the storefront drops shows up as nulls in a mart a day later, owned by someone else." /></li>
+        <li><Rich text="More components, operated by more people: a stream, a processor, storage, an orchestrator, a warehouse and a BI tool, each of which can fail independently." /></li>
+        <li><Rich text="Latency: the demo's dashboards trail checkout by up to approximately 20 minutes, whereas the single-database design was live." /></li>
+        <li><Rich text="Failures become less visible. A run can succeed while loading nothing, a schema change two steps upstream can break a report, and a logic defect can produce plausible but incorrect figures." /></li>
+        <li><Rich text="Contracts require ongoing attention. A field the storefront removes appears as nulls in a mart a day later, in a step owned by a different team." /></li>
       </ul>
       <div class="callout">
-        <Text as="p" weight="bold">This is where observability comes in.</Text>
+        <Text as="p" weight="bold">The role of observability</Text>
         <Text as="p">
-          The delegated model trades one obvious failure (the database is slow) for many quiet ones spread across teams.
-          Each persona module follows one of them: Datadog has to show which step broke, whose step it is, and what it
-          reaches downstream. See the <a href={href()}>persona modules</a>.
+          The distributed model replaces one conspicuous failure (a slow database) with many less visible failures spread
+          across teams. Each persona module examines one of them: Datadog must identify which step failed, which team owns
+          it, and which downstream assets it affects. See the <a href={href()}>persona modules</a>.
         </Text>
       </div>
       <Text as="p" size="sm" variant="secondary">
-        A rule of thumb: start with one database and a read replica for reports. Move to a pipeline when reports slow the
-        app, when several teams need the same data in different shapes, or when you need history and replay.
+        As a general guideline, begin with a single database and a read replica for reporting. Adopt a pipeline when
+        reporting degrades application performance, when several teams require the same data in different forms, or when
+        history and replay become requirements.
       </Text>
     </section>
 
