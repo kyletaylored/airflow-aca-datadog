@@ -22,6 +22,7 @@ Most of what a reader sees comes from these files:
 | [`src/data/pipeline.ts`](src/data/pipeline.ts) | Every step an order passes through, its owner and what Datadog watches there, drawn as the interactive diagram |
 | [`src/data/monitors.ts`](src/data/monitors.ts) | The monitors the scenarios alert on, as defined in the demo's Datadog org: type, target, query, threshold and message |
 | [`src/data/tools.ts`](src/data/tools.ts) | The six Datadog products: the question each answers, and what it sees in this demo |
+| [`src/data/setup.ts`](src/data/setup.ts) | The Set up page: what each Datadog product needs in this demo, its settings, and where the repo sets it up. Keep it in step with `infra/main.bicep` and `airflow/dags/contoso_dw/` |
 | [`src/data/landscape.ts`](src/data/landscape.ts) and [`src/data/concepts.ts`](src/data/concepts.ts) | The Concepts section: the tool categories, each tool's entry, the vendor-by-job matrix, the lesson list and the glossary. The lessons themselves are in `src/pages/concepts/` |
 
 The persona content follows "The story" and "Demo scenarios" in
