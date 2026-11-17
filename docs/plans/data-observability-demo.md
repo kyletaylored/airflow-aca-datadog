@@ -1,28 +1,18 @@
 # Plan: an Azure-only data pipeline for Data Observability lineage and quality
 
-Goal: a simplified, all-Azure version of the Shopist lineage demo. Orders flow from a
-producer, through a queue and a landing zone, into a Postgres medallion
-(`raw` → `staging` → `marts`) built by an Airflow DAG. Datadog shows the following:
+Goal: a simplified, all-Azure version of the Shopist lineage demo. Orders flow from a producer, through a queue and a landing zone, into a Postgres medallion (`raw` → `staging` → `marts`) built by an Airflow DAG. Datadog shows the following:
 
 - **Lineage** from the producer to the marts, with the Airflow tasks between them.
-- **Quality monitors** on the Postgres tables, with "upstream issue" badges when
-  something breaks.
+- **Quality monitors** on the Postgres tables, with "upstream issue" badges when something breaks.
 - **Jobs Monitoring** for the DAG, plus APM / DSM for the services.
 
-Phases 1 and 2 have no BI layer. Phase 3 adds a self-hosted Metabase, plus a story
-for the demo: who runs each part of the pipeline, and how Datadog helps each of them.
+Phases 1 and 2 have no BI layer. Phase 3 adds a self-hosted Metabase, plus a story for the demo: who runs each part of the pipeline, and how Datadog helps each of them.
 
-**Scope.** This pipeline supports the repo's main topic; it doesn't replace it. The
-README and guide stay about instrumenting Airflow on ACA with OpenLineage (DJM) and
-OpenTelemetry (APM). The pipeline gives those signals a realistic workload: real
-tables for OpenLineage to report, and a real upstream for the trace map. So:
+**Scope.** This pipeline supports the repo's main topic; it doesn't replace it. The README and guide stay about instrumenting Airflow on ACA with OpenLineage (DJM) and OpenTelemetry (APM). The pipeline gives those signals a realistic workload: real tables for OpenLineage to report, and a real upstream for the trace map. So:
 
-- Its docs go in a separate page (`docs/data-pipeline-demo.md`). The README gets a
-  short pointer, plus one line in "Demo DAGs".
-- Its infra sits behind an `enableDataPipeline` parameter that defaults to `false`.
-  The core template deploys exactly as today, and the demo environment turns it on.
-- Nothing in it changes how Airflow itself is instrumented. Airflow stays on the
-  managed OTel agent and the native `datadog` OpenLineage transport.
+- Its docs go in a separate page (`docs/data-pipeline-demo.md`). The README gets a short pointer, plus one line in "Demo DAGs".
+- Its infra sits behind an `enableDataPipeline` parameter that defaults to `false`. The core template deploys exactly as today, and the demo environment turns it on.
+- Nothing in it changes how Airflow itself is instrumented. Airflow stays on the managed OTel agent and the native `datadog` OpenLineage transport.
 
 ```
 contoso-storefront ──► Event Hubs "orders" ──► order-processor ──► Blob "landing/orders/…"
@@ -54,40 +44,12 @@ contoso-storefront ──► Event Hubs "orders" ──► order-processor ─�
 
 ## Design decisions
 
-1. **Same server, new database.** Add `contoso_dw` to the existing Flexible Server
-   (Postgres 16, B1ms) as a Bicep `flexibleServers/databases` resource. Airflow's
-   `airflow` database stays separate, and the `datadog` role never gets `SELECT` on it.
-   B1ms handles demo volume: a few thousand rows an hour, about 50 connections.
-2. **One Datadog Agent, as a Container App.** Use `datadog/agent:7.81+`, with
-   `minReplicas = maxReplicas = 1`. Only one Agent may own the Postgres check, or the
-   monitors run twice. It gets internal HTTP ingress on target port 8126, so dd-trace
-   services reach it at `http://aflo-dd-agent`. A Consumption environment without a
-   VNet has no TCP ingress, but trace and DSM payloads are HTTP. Settings:
-   `DD_HOSTNAME=aflo-dd-agent`, `DD_APM_NON_LOCAL_TRAFFIC=true`, `DD_ENV`, `DD_SITE`,
-   and `DD_API_KEY` as a secret. Airflow stays on the managed OTel agent; this
-   Agent is only for the Postgres check and the dd-trace services. The two phase 2
-   services use dd-trace because Data Streams Monitoring needs a Datadog SDK;
-   OpenTelemetry can't produce DSM pathways. The docs should say so, since it's the
-   one place the demo steps outside OTel.
-3. **Lineage names must match.** Datadog's OpenLineage convention for Postgres is
-   namespace `postgres://{host}:{port}` and name `{database}.{schema}.{table}`. The
-   Airflow connection and the Agent's `host:` both use the server FQDN
-   (`aflo-pg-….postgres.database.azure.com`) and port 5432. Then the DAG's datasets
-   and the catalog's tables are the same lineage nodes.
-4. **SQL steps use `SQLExecuteQueryOperator`.** Its OpenLineage SQL parser reports
-   input and output tables automatically. Only the Python load task needs
-   hand-written inlets and outlets. The `apache/airflow:3.4.0` image already ships the
-   Postgres provider, so there's nothing to install.
-5. **No container registry, as today.** The two services run on `python:3.12-slim`.
-   They pip-install `ddtrace confluent-kafka azure-storage-blob` at startup and run
-   code from the Azure Files share, the same pattern as the ACA Job. (Production
-   would build an image.)
-6. **Secrets.** One new secret, `DD_POSTGRES_PASSWORD`, for the `datadog` role. It goes
-   in the azd env, the GitHub `azure` environment, and the Agent's and Airflow's
-   Container Apps secrets. The Event Hubs and storage connection strings come from
-   Bicep (`listKeys`), so they are never set by hand. The deploy pipeline can't
-   assign roles, so everything uses keys rather than managed-identity role
-   assignments.
+1. **Same server, new database.** Add `contoso_dw` to the existing Flexible Server (Postgres 16, B1ms) as a Bicep `flexibleServers/databases` resource. Airflow's `airflow` database stays separate, and the `datadog` role never gets `SELECT` on it. B1ms handles demo volume: a few thousand rows an hour, about 50 connections.
+2. **One Datadog Agent, as a Container App.** Use `datadog/agent:7.81+`, with `minReplicas = maxReplicas = 1`. Only one Agent may own the Postgres check, or the monitors run twice. It gets internal HTTP ingress on target port 8126, so dd-trace services reach it at `http://aflo-dd-agent`. A Consumption environment without a VNet has no TCP ingress, but trace and DSM payloads are HTTP. Settings: `DD_HOSTNAME=aflo-dd-agent`, `DD_APM_NON_LOCAL_TRAFFIC=true`, `DD_ENV`, `DD_SITE`, and `DD_API_KEY` as a secret. Airflow stays on the managed OTel agent; this Agent is only for the Postgres check and the dd-trace services. The two phase 2 services use dd-trace because Data Streams Monitoring needs a Datadog SDK; OpenTelemetry can't produce DSM pathways. The docs should say so, since it's the one place the demo steps outside OTel.
+3. **Lineage names must match.** Datadog's OpenLineage convention for Postgres is namespace `postgres://{host}:{port}` and name `{database}.{schema}.{table}`. The Airflow connection and the Agent's `host:` both use the server FQDN (`aflo-pg-….postgres.database.azure.com`) and port 5432. Then the DAG's datasets and the catalog's tables are the same lineage nodes.
+4. **SQL steps use `SQLExecuteQueryOperator`.** Its OpenLineage SQL parser reports input and output tables automatically. Only the Python load task needs hand-written inlets and outlets. The `apache/airflow:3.4.0` image already ships the Postgres provider, so there's nothing to install.
+5. **No container registry, as today.** The two services run on `python:3.12-slim`. They pip-install `ddtrace confluent-kafka azure-storage-blob` at startup and run code from the Azure Files share, the same pattern as the ACA Job. (Production would build an image.)
+6. **Secrets.** One new secret, `DD_POSTGRES_PASSWORD`, for the `datadog` role. It goes in the azd env, the GitHub `azure` environment, and the Agent's and Airflow's Container Apps secrets. The Event Hubs and storage connection strings come from Bicep (`listKeys`), so they are never set by hand. The deploy pipeline can't assign roles, so everything uses keys rather than managed-identity role assignments.
 
 ## Phase 1: Postgres medallion, Agent and quality monitors
 
@@ -95,17 +57,12 @@ The DAG generates its own orders in this phase, so phase 1 stands alone.
 
 ### 1a. Spikes (do first, about half a day)
 
-- **S1, the lineage join:** one `SQLExecuteQueryOperator` writes
-  `contoso_dw.raw.orders`. Confirm that the DJM dataset node and the Postgres
-  catalog table resolve to the same entity.
+- **S1, the lineage join:** one `SQLExecuteQueryOperator` writes `contoso_dw.raw.orders`. Confirm that the DJM dataset node and the Postgres catalog table resolve to the same entity.
 - **S2, the Agent on ACA:**
   - The Postgres check reports.
   - `datadog-agent status` shows Remote Configuration `API Key: Authorized`.
   - A test dd-trace span reaches APM through `http://aflo-dd-agent`.
-  - **Check config:** decide how the Agent gets its config without a plaintext
-    password on the share. Option (a): a startup wrapper writes
-    `conf.d/postgres.d/conf.yaml` from env vars, then execs the Agent's entrypoint.
-    Option (b): the Agent's built-in secret backend. Pick whichever works in S2.
+  - **Check config:** decide how the Agent gets its config without a plaintext password on the share. Option (a): a startup wrapper writes `conf.d/postgres.d/conf.yaml` from env vars, then execs the Agent's entrypoint. Option (b): the Agent's built-in secret backend. Pick whichever works in S2.
 
 ### 1b. Infra (`infra/main.bicep`)
 
@@ -116,24 +73,17 @@ The DAG generates its own orders in this phase, so phase 1 stands alone.
   - secrets `dd-api-key` and `dd-postgres-password`
   - env as in decision 2
   - the Postgres check config, using the approach S2 picked
-- **`AIRFLOW_CONN_CONTOSO_DW` on the Airflow apps:**
-  `postgresql://<admin>:<pw>@<fqdn>:5432/contoso_dw?sslmode=require`, built from the
-  existing Postgres secret. Add `DD_POSTGRES_PASSWORD` for the bootstrap DAG.
-- **Parameters:** `datadogPostgresPassword` (secure) and `enableDataPipeline`
-  (default `false`; azd env `ENABLE_DATA_PIPELINE`, set to `true` for the demo
-  environment). Everything in 1b and phase 2 is conditional on it.
+- **`AIRFLOW_CONN_CONTOSO_DW` on the Airflow apps:** `postgresql://<admin>:<pw>@<fqdn>:5432/contoso_dw?sslmode=require`, built from the existing Postgres secret. Add `DD_POSTGRES_PASSWORD` for the bootstrap DAG.
+- **Parameters:** `datadogPostgresPassword` (secure) and `enableDataPipeline` (default `false`; azd env `ENABLE_DATA_PIPELINE`, set to `true` for the demo environment). Everything in 1b and phase 2 is conditional on it.
 
 ### 1c. DAGs (`airflow/dags/`)
 
 **`contoso_dw_bootstrap`:** manual and idempotent. It uses the admin connection to:
 
 - create the `raw`, `staging` and `marts` schemas;
-- create the `datadog` role with `pg_monitor`, `GRANT SELECT ON pg_stat_database`,
-  `USAGE` and `SELECT` on the three schemas, and `ALTER DEFAULT PRIVILEGES` for the
-  table-owning role.
+- create the `datadog` role with `pg_monitor`, `GRANT SELECT ON pg_stat_database`, `USAGE` and `SELECT` on the three schemas, and `ALTER DEFAULT PRIVILEGES` for the table-owning role.
 
-It runs once after the first deploy. It can also run as a pre-step of
-`contoso_orders`.
+It runs once after the first deploy. It can also run as a pre-step of `contoso_orders`.
 
 **`contoso_orders`:** every 15 minutes (`DEMO_DAG_SCHEDULE`-style variable).
 
@@ -166,29 +116,16 @@ It runs once after the first deploy. It can also run as a pre-step of
 | `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at))/60 AS dd_value`, alert above 45 minutes | 29744949 |
 | `marts.daily_store_sales` | Custom SQL: revenue must be ≥ 0 | 29737312 |
 
-All of them are drafts, so none notifies. Only 29737310, 29737311 and 29737312 have
-recorded a value, once each, around 05:58 on 2026-11-14; no monitor has run a second
-time. The Agent is healthy (Postgres check OK, Remote Configuration authorized), so
-this is waiting on the Data Observability team. Changing the model type, the query,
-the schedule (`crontab_override`), creating fresh monitors and restarting the Agent
-all made no difference.
+All of them are drafts, so none notifies. Only 29737310, 29737311 and 29737312 have recorded a value, once each, around 05:58 on 2026-11-14; no monitor has run a second time. The Agent is healthy (Postgres check OK, Remote Configuration authorized), so this is waiting on the Data Observability team. Changing the model type, the query, the schedule (`crontab_override`), creating fresh monitors and restarting the Agent all made no difference.
 
-**Resolved 2026-11-16:** the cause was the draft status itself. Draft monitors are
-never scheduled on the Agent; 29737312 started recording hourly the moment it was
-published. After publishing every monitor and giving each a schedule, all of them
-record values and alerted on their scenarios. The working definitions, including the
-last-hour windows for row count and null ratio, are in the
-[demo guide's Monitors to create](../data-pipeline-demo.md#monitors-to-create).
+**Resolved 2026-11-16:** the cause was the draft status itself. Draft monitors are never scheduled on the Agent; 29737312 started recording hourly the moment it was published. After publishing every monitor and giving each a schedule, all of them record values and alerted on their scenarios. The working definitions, including the last-hour windows for row count and null ratio, are in the [demo guide's Monitors to create](../data-pipeline-demo.md#monitors-to-create).
 
-Create them in the UI first. If the monitors API supports this monitor type, script
-them later. Allow about an hour after the Agent starts for the first metadata sync.
+Create them in the UI first. If the monitors API supports this monitor type, script them later. Allow about an hour after the Agent starts for the first metadata sync.
 
 ### 1e. Docs and tests
 
-- **`docs/data-pipeline-demo.md`:** the medallion, the Agent, the monitors, the
-  chaos switches, and how to turn the pipeline on.
-- **README:** a short pointer to that page, and one line for `contoso_orders` in
-  "Demo DAGs". The README's diagrams and the minimum-setup sections stay as they are.
+- **`docs/data-pipeline-demo.md`:** the medallion, the Agent, the monitors, the chaos switches, and how to turn the pipeline on.
+- **README:** a short pointer to that page, and one line for `contoso_orders` in "Demo DAGs". The README's diagrams and the minimum-setup sections stay as they are.
 - **Unit tests:**
   - the order generator, which is deterministic with a seed;
   - the chaos switches;
@@ -198,134 +135,68 @@ them later. Allow about an hour after the Agent starts for the first metadata sy
 **Phase 1 is done when:**
 
 - the `contoso_dw` tables are in the catalog;
-- lineage runs `raw` → `staging` → `marts`, with the `contoso_orders` tasks between
-  them;
+- lineage runs `raw` → `staging` → `marts`, with the `contoso_orders` tasks between them;
 - the four monitors have data;
 - each chaos switch trips its monitor, and the downstream marts show as affected.
 
 ## Phase 2: Streaming front and blob landing
 
-**Queue choice.** For open-source languages, Data Streams Monitoring supports Kafka and
-RabbitMQ. It supports Azure Service Bus only from .NET. The options:
+**Queue choice.** For open-source languages, Data Streams Monitoring supports Kafka and RabbitMQ. It supports Azure Service Bus only from .NET. The options:
 
-- **Event Hubs' Kafka endpoint, with Python services.** This is the choice. It's
-  managed, and Kafka is the closest match to the Shopist demo.
-- **RabbitMQ in ACA:** would need TCP between apps. A Consumption environment without
-  a custom VNet has no TCP ingress, so this is out.
-- **Service Bus with .NET services:** works, but it would add a second language to
-  the repo for one hop.
+- **Event Hubs' Kafka endpoint, with Python services.** This is the choice. It's managed, and Kafka is the closest match to the Shopist demo.
+- **RabbitMQ in ACA:** would need TCP between apps. A Consumption environment without a custom VNet has no TCP ingress, so this is out.
+- **Service Bus with .NET services:** works, but it would add a second language to the repo for one hop.
 
 ### 2a. Spikes
 
-- **S3, blob visibility:** Datadog documents Blob Storage dataset resolution for Azure
-  Data Factory, but not for custom OpenLineage events. Send one test event with
-  output `wasbs://landing@<account>.blob.core.windows.net` (name
-  `orders/dt=…`), and check whether it shows as a catalog or lineage node. Also check
-  whether Storage Management's view of the account links to it.
-  **If it doesn't show up:** the processor writes straight to `raw.orders`, and the
-  blob hop is dropped.
-- **S4, DSM over Event Hubs:** confirm that dd-trace-py's Kafka integration
-  (confluent-kafka, `DD_DATA_STREAMS_ENABLED=true`) shows the
-  `contoso-storefront → orders → order-processor` pathway against Event Hubs' Kafka
-  endpoint.
+- **S3, blob visibility:** Datadog documents Blob Storage dataset resolution for Azure Data Factory, but not for custom OpenLineage events. Send one test event with output `wasbs://landing@<account>.blob.core.windows.net` (name `orders/dt=…`), and check whether it shows as a catalog or lineage node. Also check whether Storage Management's view of the account links to it. **If it doesn't show up:** the processor writes straight to `raw.orders`, and the blob hop is dropped.
+- **S4, DSM over Event Hubs:** confirm that dd-trace-py's Kafka integration (confluent-kafka, `DD_DATA_STREAMS_ENABLED=true`) shows the `contoso-storefront → orders → order-processor` pathway against Event Hubs' Kafka endpoint.
 
 ### 2b. Infra
 
-- **Event Hubs namespace:** Standard tier, 1 throughput unit (Basic has no Kafka
-  endpoint). It has an event hub named `orders` (2 partitions, 1-day retention), a
-  consumer group `order-processor`, and two policies: send-only for the storefront
-  and listen-only for the processor.
-- **A `landing` blob container** in the existing storage account (StorageV2, flat
-  namespace).
+- **Event Hubs namespace:** Standard tier, 1 throughput unit (Basic has no Kafka endpoint). It has an event hub named `orders` (2 partitions, 1-day retention), a consumer group `order-processor`, and two policies: send-only for the storefront and listen-only for the processor.
+- **A `landing` blob container** in the existing storage account (StorageV2, flat namespace).
 - **The `contoso-storefront` Container App:** 0.25 vCPU, no ingress.
-  - It produces orders at `ORDERS_PER_MINUTE`, with the same chaos knobs exposed as env
-    vars.
-  - Settings: `DD_SERVICE=contoso-storefront`, `DD_DATA_STREAMS_ENABLED=true`,
-    `DD_TRACE_AGENT_URL=http://aflo-dd-agent`.
-  - Kafka: `SASL_SSL` / `PLAIN` to `<ns>.servicebus.windows.net:9093`, with user
-    `$ConnectionString`.
+  - It produces orders at `ORDERS_PER_MINUTE`, with the same chaos knobs exposed as env vars.
+  - Settings: `DD_SERVICE=contoso-storefront`, `DD_DATA_STREAMS_ENABLED=true`, `DD_TRACE_AGENT_URL=http://aflo-dd-agent`.
+  - Kafka: `SASL_SSL` / `PLAIN` to `<ns>.servicebus.windows.net:9093`, with user `$ConnectionString`.
 - **The `order-processor` Container App:** 0.25 vCPU.
-  - It consumes, validates, and every 60 seconds writes an NDJSON batch to
-    `landing/orders/dt=YYYY-MM-DD/hour=HH/batch-<ts>.json`.
-  - It sends an OpenLineage event per batch: input is Kafka `orders`, output is the
-    blob prefix. These sit next to its DSM spans.
-- **Storage Management:** run the script that Datadog's Enable buckets page generates
-  for the storage account, from Cloud Shell. It creates the inventory policy, the
-  `datadog-storage-monitoring` container, and a Storage Blob Data Reader role for
-  Datadog's App Registration. This is a role assignment, so you run it, not the
-  pipeline. Data arrives 24 to 48 hours later.
+  - It consumes, validates, and every 60 seconds writes an NDJSON batch to `landing/orders/dt=YYYY-MM-DD/hour=HH/batch-<ts>.json`.
+  - It sends an OpenLineage event per batch: input is Kafka `orders`, output is the blob prefix. These sit next to its DSM spans.
+- **Storage Management:** run the script that Datadog's Enable buckets page generates for the storage account, from Cloud Shell. It creates the inventory policy, the `datadog-storage-monitoring` container, and a Storage Blob Data Reader role for Datadog's App Registration. This is a role assignment, so you run it, not the pipeline. Data arrives 24 to 48 hours later.
 
 ### 2c. DAG changes
 
-- **`ingest_orders` loads blobs instead of generating orders.** It lists blobs under
-  `landing/orders/` that aren't in `raw._ingested_files`, `COPY`s them into
-  `raw.orders` with `_source_file` and `_loaded_at`, and records them. Inlets are the
-  blob prefix; the outlet is `contoso_dw.raw.orders`.
-- **A `source` param:** `stream` (default once phase 2 ships) or `generate`, so the
-  phase 1 path keeps working without the streaming apps.
+- **`ingest_orders` loads blobs instead of generating orders.** It lists blobs under `landing/orders/` that aren't in `raw._ingested_files`, `COPY`s them into `raw.orders` with `_source_file` and `_loaded_at`, and records them. Inlets are the blob prefix; the outlet is `contoso_dw.raw.orders`.
+- **A `source` param:** `stream` (default once phase 2 ships) or `generate`, so the phase 1 path keeps working without the streaming apps.
 
-**Phase 2 is done when** lineage runs storefront → `orders` topic → order-processor →
-landing blob (or straight to `raw.orders` if S3 fails) → `contoso_orders` → marts.
-The DSM view should also show producer and consumer latency.
+**Phase 2 is done when** lineage runs storefront → `orders` topic → order-processor → landing blob (or straight to `raw.orders` if S3 fails) → `contoso_orders` → marts. The DSM view should also show producer and consumer latency.
 
 ## Status, 2026-11-14
 
-Phases 1 and 2 shipped in PRs #7 and #8, and Deploy now runs CI first (PR #9).
-What's still open against the "done when" lists:
+Phases 1 and 2 shipped in PRs #7 and #8, and Deploy now runs CI first (PR #9). What's still open against the "done when" lists:
 
-- **Monitors:** see 1d. The Job monitor (29746396) is the only one that has alerted
-  on a chaos run: `breaking_schema` tripped it, and it recovered on the next run.
-  The data quality monitors still don't record values: the row-count monitor on
-  `raw.orders` has never run, and every triggered run of the others ends with "run
-  completed but produced no metric data". That needs Datadog support. The chaos
-  effects themselves are verified in the tables. (Resolved 2026-11-16: the monitors were drafts,
-  which never run on the Agent, and manual runs report that error even for working
-  monitors. See 1d.)
-- **Affected marts:** table-level lineage is complete. Downstream of `raw.orders` it
-  shows `staging_orders`, then `staging.orders`, then all three marts and
-  `check_staging`.
-- **Column lineage (fixed):** computed columns used to lose their names.
-  openlineage-sql names column lineage after the SELECT output, not the INSERT
-  column list, so `round(amount_cents / 100.0, 2)` came out as `_0`. Datadog then
-  showed `raw.orders.amount_cents` feeding `staging_orders` and stopped there. Every
-  staging and mart column now has an alias matching its target, and a test checks
-  the names.
-- **Leftover column:** after a `breaking_schema` run, the catalog keeps
-  `raw.orders.amount_minor` as a column, even though the next run renames it back.
-- **Bits Investigation:** starting one from the Job monitor's alert failed twice
-  with a server error (500), through the MCP server's trigger tool. Try it from the
-  monitor's alert page in the UI.
+- **Monitors:** see 1d. The Job monitor (29746396) is the only one that has alerted on a chaos run: `breaking_schema` tripped it, and it recovered on the next run. The data quality monitors still don't record values: the row-count monitor on `raw.orders` has never run, and every triggered run of the others ends with "run completed but produced no metric data". That needs Datadog support. The chaos effects themselves are verified in the tables. (Resolved 2026-11-16: the monitors were drafts, which never run on the Agent, and manual runs report that error even for working monitors. See 1d.)
+- **Affected marts:** table-level lineage is complete. Downstream of `raw.orders` it shows `staging_orders`, then `staging.orders`, then all three marts and `check_staging`.
+- **Column lineage (fixed):** computed columns used to lose their names. openlineage-sql names column lineage after the SELECT output, not the INSERT column list, so `round(amount_cents / 100.0, 2)` came out as `_0`. Datadog then showed `raw.orders.amount_cents` feeding `staging_orders` and stopped there. Every staging and mart column now has an alias matching its target, and a test checks the names.
+- **Leftover column:** after a `breaking_schema` run, the catalog keeps `raw.orders.amount_minor` as a column, even though the next run renames it back.
+- **Bits Investigation:** starting one from the Job monitor's alert failed twice with a server error (500), through the MCP server's trigger tool. Try it from the monitor's alert page in the UI.
 - **Lineage gaps:** both are on Datadog's side; our events are correct.
-  - `ingest_customers` reports `contoso_dw.raw.customers` as its output, but Datadog
-    draws no edge for it. It's the only task with outputs and no inputs.
-  - The `orders` topic exists twice: once from OpenLineage and once from DSM. The
-    lineage map shows the OpenLineage one, so its producer and consumer panel is
-    empty. DSM itself shows the storefront → order-processor pathway.
-- **The storefront** isn't a lineage node, because it doesn't send OpenLineage events.
-  Lineage starts at the topic.
+  - `ingest_customers` reports `contoso_dw.raw.customers` as its output, but Datadog draws no edge for it. It's the only task with outputs and no inputs.
+  - The `orders` topic exists twice: once from OpenLineage and once from DSM. The lineage map shows the OpenLineage one, so its producer and consumer panel is empty. DSM itself shows the storefront → order-processor pathway.
+- **The storefront** isn't a lineage node, because it doesn't send OpenLineage events. Lineage starts at the topic.
 
 ## Phase 3: the Contoso story, Metabase, and one monitor of each type
 
-**Status:** built. The narrative, team, scenarios and run sheet are in
-`docs/data-pipeline-demo.md`, and Metabase is in Bicep behind `enableMetabase` (see
-3e). Monitors don't record values yet; see 1d.
+**Status:** built. The narrative, team, scenarios and run sheet are in `docs/data-pipeline-demo.md`, and Metabase is in Bicep behind `enableMetabase` (see 3e). Monitors don't record values yet; see 1d.
 
 ### 3a. Narrative
 
-> Contoso Outfitters is a global e-commerce retailer of outdoor and travel gear. It
-> sells through its website, its mobile app and its own stores. This demo follows its
-> North American business: orders from seven stores and about 2,000 customers.
+> Contoso Outfitters is a global e-commerce retailer of outdoor and travel gear. It sells through its website, its mobile app and its own stores. This demo follows its North American business: orders from seven stores and about 2,000 customers.
 >
-> Every order the storefront takes goes onto Azure Event Hubs. An order processor
-> lands the orders in batches in Azure Data Lake Storage. Apache Airflow, running on
-> Azure Container Apps, loads them every 15 minutes into a Postgres warehouse: `raw`,
-> then cleaned `staging` tables, then `marts` tables for reporting. The business reads
-> those marts in Metabase dashboards. Datadog watches each step: APM and Data Streams
-> Monitoring for the services, Data Jobs Monitoring for Airflow, and Data
-> Observability for the tables, their lineage, and the dashboards that depend on them.
+> Every order the storefront takes goes onto Azure Event Hubs. An order processor lands the orders in batches in Azure Data Lake Storage. Apache Airflow, running on Azure Container Apps, loads them every 15 minutes into a Postgres warehouse: `raw`, then cleaned `staging` tables, then `marts` tables for reporting. The business reads those marts in Metabase dashboards. Datadog watches each step: APM and Data Streams Monitoring for the services, Data Jobs Monitoring for Airflow, and Data Observability for the tables, their lineage, and the dashboards that depend on them.
 
-The data already matches this: stores in seven US cities, five regions, and web,
-mobile and store channels.
+The data already matches this: stores in seven US cities, five regions, and web, mobile and store channels.
 
 ### 3b. The team
 
@@ -338,17 +209,12 @@ mobile and store channels.
 | John | BI lead | Metabase and its dashboards, and the people who read them |
 
 **Roles we could add later, but don't need now:**
-- **Data platform engineer:** owns the infrastructure, meaning Airflow on ACA, the
-  Datadog Agent, and Postgres. In this demo, Emily covers it.
-- **Data steward:** owns data definitions and access. That's governance, and Datadog
-  plays a small part in it.
+- **Data platform engineer:** owns the infrastructure, meaning Airflow on ACA, the Datadog Agent, and Postgres. In this demo, Emily covers it.
+- **Data steward:** owns data definitions and access. That's governance, and Datadog plays a small part in it.
 
 ### 3c. Scenarios
 
-Each scenario is a chaos switch on the `contoso_orders` DAG (a run param), so the
-presenter can trigger it on demand. Each has the same arc: the issue starts in one
-person's area, Datadog alerts, the owner finds the cause, and the fix is outlined but
-not performed.
+Each scenario is a chaos switch on the `contoso_orders` DAG (a run param), so the presenter can trigger it on demand. Each has the same arc: the issue starts in one person's area, Datadog alerts, the owner finds the cause, and the fix is outlined but not performed.
 
 | # | Who | What breaks | Switch | What Datadog shows |
 |---|---|---|---|---|
@@ -358,14 +224,10 @@ not performed.
 | 4 | Priya | A refund-handling change makes some orders count as negative revenue. | `refund_bug` (new) | The negative-revenue threshold monitor alerts, and the anomaly monitor on total daily revenue flags the dip. |
 | 5 | John | Each upstream issue reaches his reports. | none: a consequence of 1 to 4 | The marts tables his reports read show as affected in lineage, so he can see which numbers are wrong or stale, and whose issue it is. His Metabase dashboards appear in lineage below the marts (see 3e). |
 
-**Bits AI in each scenario.** Datadog's Bits AI docs don't describe Data Observability
-use yet, so treat these steps as to-verify:
-- **Bits Investigation:** run from the alert in scenarios 1 to 4 to find the root
-  cause. No Preview label in the docs.
-- **Bits Chat:** for John, "which dashboards read `marts.daily_store_sales`?", and for
-  Rajesh, "what depends on `raw.orders.amount_cents`?".
-- **Bits Code:** in scenarios 2 and 4, propose the SQL fix as a pull request. No
-  Preview label.
+**Bits AI in each scenario.** Datadog's Bits AI docs don't describe Data Observability use yet, so treat these steps as to-verify:
+- **Bits Investigation:** run from the alert in scenarios 1 to 4 to find the root cause. No Preview label in the docs.
+- **Bits Chat:** for John, "which dashboards read `marts.daily_store_sales`?", and for Rajesh, "what depends on `raw.orders.amount_cents`?".
+- **Bits Code:** in scenarios 2 and 4, propose the SQL fix as a pull request. No Preview label.
 - **In Preview, request access first:**
   - Bits Remediation, for the next steps after an investigation.
   - Bits Data Analysis, for John to ask questions of the marts without SQL.
@@ -385,47 +247,26 @@ All of these depend on the open issue in 1d: monitors need to run more than once
 
 ### 3e. Metabase on ACA
 
-- **App:** `aflo-metabase`, running the `metabase/metabase` image, about 1 vCPU and
-  2 GiB, with external ingress on port 3000. Behind a new `enableMetabase` parameter
-  that defaults to `false`, like the other optional pieces.
+- **App:** `aflo-metabase`, running the `metabase/metabase` image, about 1 vCPU and 2 GiB, with external ingress on port 3000. Behind a new `enableMetabase` parameter that defaults to `false`, like the other optional pieces.
 - **Metabase's own database:** a new `metabase` database on the same Postgres server.
 - **What it reads:** `contoso_dw`, as a read-only `metabase` role on `marts` only.
-- **Content:** `scripts/metabase_seed.py` creates three dashboards and 19 questions
-  through Metabase's API, from `metabase/dashboards.json`: "Store Sales — Today",
-  "Customer Value" and "Pipeline Health".
-- **Datadog:** the Metabase integration, which uses the Metabase URL and an API key.
-  It adds Metabase logs, and lineage from the marts tables to cards and dashboards.
+- **Content:** `scripts/metabase_seed.py` creates three dashboards and 19 questions through Metabase's API, from `metabase/dashboards.json`: "Store Sales — Today", "Customer Value" and "Pipeline Health".
+- **Datadog:** the Metabase integration, which uses the Metabase URL and an API key. It adds Metabase logs, and lineage from the marts tables to cards and dashboards.
 
-**Spike result (2026-11-14), corrected 2026-11-15: the open-source edition works.**
-Open-source Metabase (`metabase/metabase:v0.65.4.4`) ran on ACA, built by hand at
-first. The Datadog tile accepted the API key, then reported "Cannot access 'Internal
-Metabase Database'… ensure you have Metabase Pro or Enterprise plan." We took that to
-mean the integration needed Pro. It doesn't: that database is only the source for
-Usage analytics. Datadog's Metabase crawler synced the three dashboards and their
-questions anyway, and lineage shows them below the marts. Only usage analytics needs
-Pro, through a license token in `MB_PREMIUM_EMBEDDING_TOKEN`.
+**Spike result (2026-11-14), corrected 2026-11-15: the open-source edition works.** Open-source Metabase (`metabase/metabase:v0.65.4.4`) ran on ACA, built by hand at first. The Datadog tile accepted the API key, then reported "Cannot access 'Internal Metabase Database'… ensure you have Metabase Pro or Enterprise plan." We took that to mean the integration needed Pro. It doesn't: that database is only the source for Usage analytics. Datadog's Metabase crawler synced the three dashboards and their questions anyway, and lineage shows them below the marts. Only usage analytics needs Pro, through a license token in `MB_PREMIUM_EMBEDDING_TOKEN`.
 
 What it needs on Azure Postgres (Bicep and `contoso_dw_bootstrap` now do all of it):
-- **`public` schema:** in the `metabase` database it belongs to `azure_pg_admin`, so
-  the `metabase` role has to own it, not just the database.
-- **`azure.extensions`:** must allow `CITEXT`, and `citext` has to be created in the
-  `metabase` database.
-- **Connection pools:** Metabase's default pools took 13 of the 35 connections B1ms
-  allows ordinary roles. The pools are capped with
-  `MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE=4` and
-  `MB_JDBC_DATA_WAREHOUSE_MAX_CONNECTION_POOL_SIZE=3`, and the server is now
-  `Standard_B2s`.
-- **`max_connections`:** 200, through the `postgresMaxConnections` parameter. Azure
-  kept the B1ms value of 50 after the SKU change.
-- **`JAVA_OPTS=-Xmx1536m`:** without it, the JVM saw only about 500 MB of the 2 GiB
-  container.
+- **`public` schema:** in the `metabase` database it belongs to `azure_pg_admin`, so the `metabase` role has to own it, not just the database.
+- **`azure.extensions`:** must allow `CITEXT`, and `citext` has to be created in the `metabase` database.
+- **Connection pools:** Metabase's default pools took 13 of the 35 connections B1ms allows ordinary roles. The pools are capped with `MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE=4` and `MB_JDBC_DATA_WAREHOUSE_MAX_CONNECTION_POOL_SIZE=3`, and the server is now `Standard_B2s`.
+- **`max_connections`:** 200, through the `postgresMaxConnections` parameter. Azure kept the B1ms value of 50 after the SKU change.
+- **`JAVA_OPTS=-Xmx1536m`:** without it, the JVM saw only about 500 MB of the 2 GiB container.
 
 ### 3f. Order of work
 
 1. ~~The Metabase spike~~: done, see 3e.
 2. ~~The two new chaos switches~~: done.
-3. The new monitors: revenue anomaly (29745883), Source to Target (29745880,
-   since replaced by 29796972) and the Job monitor (29746396) created.
+3. The new monitors: revenue anomaly (29745883), Source to Target (29745880, since replaced by 29796972) and the Job monitor (29746396) created.
 4. ~~Metabase in Bicep and the seed script~~: done.
 5. ~~The narrative, team, scenarios and run sheet~~: done.
 
@@ -440,17 +281,12 @@ What it needs on Azure Postgres (Bicep and `contoso_dw_bootstrap` now do all of 
 | `aflo-metabase` (1 vCPU, 2 GiB), phase 3 | A few dollars: it scales to zero. $40–60 if always on |
 | Postgres `Standard_B2s` for Metabase | About $35 more than B1ms |
 
-Scale the two services to 0 replicas between demos to save most of the phase 2
-cost.
+Scale the two services to 0 replicas between demos to save most of the phase 2 cost.
 
 ## Decisions on the earlier open questions
 
 These are defaults, chosen so work can start. Change any of them later.
 
-1. **The Azure integration type** only matters for Storage Management, which is
-   optional. Check it in the Datadog Azure tile before phase 2, as described above.
-2. **Keep `contoso_sales`.** It's the README's example of ACA Job runs nested under
-   Airflow tasks, which is core to the guide. `contoso_orders` is the warehouse
-   example. The two DAGs stay independent.
-3. **Run every 15 minutes, set by a variable.** It gives the monitors enough points
-   within a demo session. Hourly (to match Shopist) is a one-line change.
+1. **The Azure integration type** only matters for Storage Management, which is optional. Check it in the Datadog Azure tile before phase 2, as described above.
+2. **Keep `contoso_sales`.** It's the README's example of ACA Job runs nested under Airflow tasks, which is core to the guide. `contoso_orders` is the warehouse example. The two DAGs stay independent.
+3. **Run every 15 minutes, set by a variable.** It gives the monitors enough points within a demo session. Hourly (to match Shopist) is a one-line change.
