@@ -6,15 +6,18 @@ import { href } from "../lib/site";
 interface Props {
   title: string;
   description: string;
+  // The home page's title stands alone; every other page is suffixed with the site name.
+  standalone?: boolean;
 }
 
-const { title, description } = Astro.props;
+const SITE_NAME = "Datadog for data pipelines";
+const { title, description, standalone = false } = Astro.props;
 const path = Astro.url.pathname;
-const pageTitle = `${title} · Contoso data pipeline`;
+const pageTitle = standalone ? title : `${title} · ${SITE_NAME}`;
 // Share cards need absolute URLs.
 const canonical = new URL(path, Astro.site).href;
 const image = new URL(href("og-image.png"), Astro.site).href;
-const imageAlt = "Contoso data pipeline: pipeline incidents by role, from the storefront to the dashboards.";
+const imageAlt = "Observing a data pipeline with Datadog: five roles, from the storefront to the dashboards.";
 const nav = [
   { label: "Modules", to: "", also: "personas/" },
   { label: "Concepts", to: "concepts/" },
@@ -34,7 +37,7 @@ const nav = [
     <meta name="theme-color" content="#632ca6" />
 
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Contoso data pipeline" />
+    <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={description} />
@@ -65,9 +68,9 @@ const nav = [
     <header class="site-header">
       <div class="wrap header-inner">
         <a class="brand" href={href()}>
-          <span class="brand-mark" aria-hidden="true">C</span>
+          <span class="brand-mark" aria-hidden="true">D</span>
           <span>
-            <strong>Contoso data pipeline</strong>
+            <strong>{SITE_NAME}</strong>
             <span class="brand-sub">Observability by role</span>
           </span>
         </a>
