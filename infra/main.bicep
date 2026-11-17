@@ -61,6 +61,12 @@ param datadogSite string = 'datadoghq.com'
 @description('Datadog "env" tag on traces, and the OpenLineage namespace (shown as "env" in Data Jobs Monitoring).')
 param datadogEnv string = 'airflow-aca'
 
+@description('Repository URL for Datadog Source Code Integration, without the scheme (for example github.com/<owner>/<repo>). Tagged on every service\'s telemetry so Datadog links it to the code. Empty leaves it off.')
+param gitRepositoryUrl string = ''
+
+@description('Commit SHA of the deployed code, for Datadog Source Code Integration. The deploy workflow passes github.sha. Empty leaves it off.')
+param gitCommitSha string = ''
+
 @description('Schedule for the bundled demo DAGs (cron or preset like @hourly). Empty = manual trigger only.')
 param demoDagSchedule string = '*/5 * * * *'
 
@@ -434,9 +440,11 @@ var datadogEnvVars = enableDatadog ? [
 // recommended; version comes
 // from service.version. The managed agent's pipeline maps Datadog `env` only
 // from the older deployment.environment key, so set it alongside .name.
-func otelServiceEnv(enabled bool, service string, resourceId string, region string, ddEnv string, version string) array => enabled ? [
+// `git` is the Source Code Integration attributes (otelGitAttributes), already
+// comma-prefixed or empty.
+func otelServiceEnv(enabled bool, service string, resourceId string, region string, ddEnv string, version string, git string) array => enabled ? [
   { name: 'OTEL_SERVICE_NAME', value: service }
-  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},cloud.region=${region},deployment.environment=${ddEnv},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow' }
+  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=${resourceId},cloud.region=${region},deployment.environment=${ddEnv},deployment.environment.name=${ddEnv},service.version=${version},service.namespace=airflow${git}' }
 ] : []
 // Components that make ARM calls (the scheduler runs the operator's tasks, the
 // triggerer polls) get `requests` instrumentation, so each call is a span under
@@ -453,6 +461,15 @@ var jobLineageEnv = enableDatadog ? [
   { name: 'OPENLINEAGE_NAMESPACE', value: datadogEnv }
 ] : []
 var airflowVersion = last(split(airflowImage, ':'))
+
+// Datadog Source Code Integration: the repository and commit on every service's
+// telemetry, so Datadog links stack traces and spans to the code. OpenTelemetry
+// services take them as vcs.* resource attributes; dd-trace reads DD_GIT_*.
+var otelGitAttributes = '${empty(gitRepositoryUrl) ? '' : ',vcs.repository.url.full=${gitRepositoryUrl}'}${empty(gitCommitSha) ? '' : ',vcs.ref.head.revision=${gitCommitSha}'}'
+var ddGitEnv = concat(
+  empty(gitRepositoryUrl) ? [] : [ { name: 'DD_GIT_REPOSITORY_URL', value: gitRepositoryUrl } ],
+  empty(gitCommitSha) ? [] : [ { name: 'DD_GIT_COMMIT_SHA', value: gitCommitSha } ]
+)
 var appIdPrefix = '${resourceGroup().id}/providers/Microsoft.App/containerApps'
 var executionApiEnv = [
   { name: 'AIRFLOW__CORE__EXECUTION_API_SERVER_URL', value: 'https://${airflowWeb.properties.configuration.ingress.fqdn}/execution/' }
@@ -513,7 +530,7 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
             'airflow db migrate && (airflow fab-db migrate || true) && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && exec airflow api-server --host 0.0.0.0 --port 8080'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', location, datadogEnv, airflowVersion))
+          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', location, datadogEnv, airflowVersion, otelGitAttributes))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -547,7 +564,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow scheduler' ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowVersion), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowVersion, otelGitAttributes), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -581,7 +598,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', location, datadogEnv, airflowVersion), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', location, datadogEnv, airflowVersion, otelGitAttributes), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -615,7 +632,7 @@ resource airflowDagProcessor 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow dag-processor' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', location, datadogEnv, airflowVersion))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', location, datadogEnv, airflowVersion, otelGitAttributes))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -821,8 +838,9 @@ resource landingContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
 
 var landingConn = 'DefaultEndpointsProtocol=https;AccountName=${landingAccountName};AccountKey=${landingStorage!.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
-// What both services share: dd-trace with DSM, pointed at the Agent's intake.
-func streamServiceEnv(service string, ddEnv string, agentUrl string) array => [
+// What both services share: dd-trace with DSM, pointed at the Agent's intake,
+// plus the Source Code Integration variables (`git`, from ddGitEnv).
+func streamServiceEnv(service string, ddEnv string, agentUrl string, git array) array => concat([
   { name: 'PYTHONUNBUFFERED', value: '1' }
   { name: 'PYTHONPATH', value: '/opt/contoso/services' }
   { name: 'DD_SERVICE', value: service }
@@ -832,7 +850,7 @@ func streamServiceEnv(service string, ddEnv string, agentUrl string) array => [
   { name: 'DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED', value: 'true' }
   // No DogStatsD here: the Agent is only reachable over HTTP ingress.
   { name: 'DD_RUNTIME_METRICS_ENABLED', value: 'false' }
-]
+], git)
 
 var ddAgentUrl = 'http://${ddAgentName}'
 var streamVolumeMounts = [
@@ -859,7 +877,7 @@ resource storefront 'Microsoft.App/containerApps@2024-03-01' = if (enableStream)
           command: [ '/bin/sh', '-c' ]
           args: [ 'pip install --no-cache-dir --disable-pip-version-check -q ${streamPackages} && exec ddtrace-run python /opt/contoso/services/storefront.py' ]
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
-          env: concat(streamServiceEnv('contoso-storefront', datadogEnv, ddAgentUrl), [
+          env: concat(streamServiceEnv('contoso-storefront', datadogEnv, ddAgentUrl, ddGitEnv), [
             { name: 'KAFKA_BOOTSTRAP_SERVERS', value: kafkaBootstrap }
             { name: 'KAFKA_CONNECTION_STRING', secretRef: 'kafka-conn' }
             { name: 'KAFKA_TOPIC', value: ordersTopic }
@@ -897,7 +915,7 @@ resource orderProcessor 'Microsoft.App/containerApps@2024-03-01' = if (enableStr
           command: [ '/bin/sh', '-c' ]
           args: [ 'pip install --no-cache-dir --disable-pip-version-check -q ${streamPackages} && exec ddtrace-run python /opt/contoso/services/order_processor.py' ]
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
-          env: concat(streamServiceEnv('order-processor', datadogEnv, ddAgentUrl), [
+          env: concat(streamServiceEnv('order-processor', datadogEnv, ddAgentUrl, ddGitEnv), [
             { name: 'KAFKA_BOOTSTRAP_SERVERS', value: kafkaBootstrap }
             { name: 'KAFKA_CONNECTION_STRING', secretRef: 'kafka-conn' }
             { name: 'KAFKA_TOPIC', value: ordersTopic }
