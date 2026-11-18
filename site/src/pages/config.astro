@@ -1,5 +1,6 @@
 ---
 import { Text } from "@datadog/druids/typography/Text";
+import Clicks from "../components/Clicks.astro";
 import Rich from "../components/Rich.astro";
 import ToolTag from "../components/ToolTag.astro";
 import Base from "../layouts/Base.astro";
@@ -16,13 +17,31 @@ const numbered = configGroups.map((g) => ({ ...g, steps: g.steps.map((s) => ({ .
   <section class="hero hero-compact">
     <Text as="h1" size="xxl" weight="bold">Config</Text>
     <Text as="p" size="lg" variant="secondary" className="lede">
-      Each product needs a few settings. Start with Data Jobs Monitoring, and add the others when you need what they
-      show. Values in angle brackets are your own.
+      Each product needs a few settings. Start with Data Jobs Monitoring, and add the others when you need what they show. Values in angle brackets are your own. Where a setting can also be made in the Azure portal, its card has a Code and an Azure portal tab.
     </Text>
     <ol class="config-index">
       {numbered.flatMap((g) => g.steps).map((s) => <li><a href={`#${s.id}`}>{s.name}</a></li>)}
     </ol>
   </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.documentElement;
+      let view = "code";
+      try { view = localStorage.getItem("config-view") || "code"; } catch (e) {}
+      root.dataset.configView = view;
+      const sync = () =>
+        document.querySelectorAll("[data-view-button]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.viewButton === root.dataset.configView)));
+      document.addEventListener("DOMContentLoaded", sync);
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-view-button]");
+        if (!b) return;
+        root.dataset.configView = b.dataset.viewButton;
+        try { localStorage.setItem("config-view", b.dataset.viewButton); } catch (e) {}
+        sync();
+      });
+    })();
+  </script>
 
   {
     numbered.map((group) => (
@@ -42,11 +61,25 @@ const numbered = configGroups.map((g) => ({ ...g, steps: g.steps.map((s) => ({ .
               <div class="card-body">
                 <Text as="p" weight="bold"><Rich text={step.gives} /></Text>
                 <Text as="p" size="sm" variant="secondary"><Rich text={step.where} /></Text>
+                {step.snippets.some((s) => s.portal) && (
+                  <div class="config-view" role="group" aria-label="Show the steps as">
+                    <button type="button" data-view-button="code" aria-pressed="true">Code</button>
+                    <button type="button" data-view-button="portal" aria-pressed="false">Azure portal</button>
+                  </div>
+                )}
                 {step.snippets.map((s) => (
-                  <figure class="example">
-                    <figcaption>{s.label}</figcaption>
-                    <pre><code>{s.code}</code></pre>
-                  </figure>
+                  <>
+                    {s.portal && (
+                      <figure class="example config-portal" data-pane="portal">
+                        <figcaption>{s.label}, in the Azure portal</figcaption>
+                        <ol class="config-portal-steps">{s.portal.map((t) => <li><Clicks text={t} /></li>)}</ol>
+                      </figure>
+                    )}
+                    <figure class="example" data-pane={s.portal && !s.values ? "code" : undefined}>
+                      <figcaption>{s.label}</figcaption>
+                      <pre><code>{s.code}</code></pre>
+                    </figure>
+                  </>
                 ))}
                 {step.steps && <ol class="ticks config-clicks">{step.steps.map((t) => <li>{t}</li>)}</ol>}
                 {step.note && <p class="config-note"><Rich text={step.note} /></p>}

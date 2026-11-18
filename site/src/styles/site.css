@@ -1341,6 +1341,51 @@
   .config-clicks {
     margin: 0;
   }
+  /* Code and Azure portal tabs. Without JavaScript both views show, and the tabs stay hidden. */
+  .config-view {
+    display: none;
+    justify-self: start;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--ui-border);
+    border-radius: 8px;
+  }
+  :root[data-config-view] .config-view {
+    display: inline-flex;
+  }
+  .config-view button {
+    padding: 4px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--ui-text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .config-view button:hover {
+    color: var(--ui-text);
+  }
+  /* Matches the selected item in the site nav. */
+  .config-view button[aria-pressed="true"] {
+    background: var(--ui-background-tertiary);
+    color: var(--ui-text);
+    font-weight: 700;
+  }
+  :root[data-config-view="code"] [data-pane="portal"],
+  :root[data-config-view="portal"] [data-pane="code"] {
+    display: none;
+  }
+  .config-portal-steps {
+    margin: 0;
+    padding: 12px 16px 12px 36px;
+    border: 1px solid var(--ui-border);
+    border-radius: 8px;
+    display: grid;
+    gap: 6px;
+    font-size: 14px;
+  }
   main > .callout {
     margin-top: 40px;
   }

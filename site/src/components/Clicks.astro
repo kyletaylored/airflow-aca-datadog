@@ -1,0 +1,10 @@
+---
+// One portal step: plain text with **menu and button names** in bold and `names` set as code.
+interface Props {
+  text: string;
+}
+
+const parts = Astro.props.text.split(/(\*\*[^*]+\*\*|`[^`]+`)/).filter(Boolean);
+---
+
+{parts.map((p) => (p.startsWith("**") ? <strong>{p.slice(2, -2)}</strong> : p.startsWith("`") ? <code>{p.slice(1, -1)}</code> : p))}
