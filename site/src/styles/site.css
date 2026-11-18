@@ -627,8 +627,22 @@
     justify-content: space-between;
   }
   .docs-link {
-    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ui-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
     white-space: nowrap;
+  }
+  .docs-link:hover,
+  .docs-link:focus-visible {
+    color: var(--ui-text);
+    text-decoration: underline;
+  }
+  .docs-link svg {
+    flex: none;
   }
 
   .site-footer {
