@@ -869,6 +869,15 @@
   .pf-owner img {
     border-radius: 50%;
   }
+  /* The step's lifecycle stage, on the right of the owner row. */
+  .pf-stage {
+    margin-left: auto;
+    color: var(--ui-text-tertiary);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
   .pf-title {
     font-family: "Roboto Mono", Menlo, monospace;
     font-weight: 700;

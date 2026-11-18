@@ -2,6 +2,12 @@
 
 export const conceptLessons = [
   {
+    slug: "terminology",
+    title: "Observability and data engineering terms",
+    summary:
+      "The terms both fields use for the same ideas, mapped in both directions, and the five stages of the data engineering lifecycle that the course uses to place each component.",
+  },
+  {
     slug: "why-pipelines",
     title: "The case for a distributed pipeline",
     summary:
@@ -26,6 +32,11 @@ export const conceptLessons = [
       "The two kinds of telemetry Airflow sends to Datadog: OpenLineage events for Data Jobs Monitoring, which describe what each pipeline did, and OpenTelemetry traces for APM, which describe how Airflow did the work.",
   },
 ] as const;
+
+// "Concept 2 of 5": where a lesson sits in the reading order.
+export function conceptPosition(slug: (typeof conceptLessons)[number]["slug"]): string {
+  return `Concept ${conceptLessons.findIndex((l) => l.slug === slug) + 1} of ${conceptLessons.length}`;
+}
 
 export const glossary: { term: string; meaning: string }[] = [
   { term: "OLTP", meaning: "Online transaction processing: the application's database, tuned for a high volume of small, fast reads and writes." },

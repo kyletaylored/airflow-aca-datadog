@@ -5,6 +5,7 @@ import Diagram from "../../components/Diagram.astro";
 import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
+import { conceptPosition } from "../../data/concepts";
 import { href } from "../../lib/site";
 
 const nodes: FlowNode[] = [
@@ -32,7 +33,7 @@ const edges: FlowEdge[] = [
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
     <header class="hero hero-compact">
-      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 4 of 4</Text>
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">{conceptPosition("lineage-and-traces")}</Text>
       <Text as="h1" size="xxl" weight="bold">Lineage events and traces</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
         Airflow reports to Datadog through two open standards. OpenLineage describes what each pipeline did; OpenTelemetry describes how Airflow did the work. The two are not the same data: they answer different questions, serve different teams, and arrive in Datadog as separate traces.

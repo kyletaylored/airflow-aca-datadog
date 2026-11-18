@@ -5,6 +5,7 @@ import Diagram from "../../components/Diagram.astro";
 import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
+import { conceptPosition } from "../../data/concepts";
 import { href } from "../../lib/site";
 
 const nodes: FlowNode[] = [
@@ -52,7 +53,7 @@ const etlEdges: FlowEdge[] = [
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
     <header class="hero hero-compact">
-      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 2 of 4</Text>
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">{conceptPosition("medallion")}</Text>
       <Text as="h1" size="xxl" weight="bold">Medallion architecture</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
         A medallion architecture organizes a warehouse or lakehouse into three layers of increasing refinement: bronze,

@@ -1,0 +1,106 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import ConceptPager from "../../components/ConceptPager.astro";
+import Rich from "../../components/Rich.astro";
+import Base from "../../layouts/Base.astro";
+import { conceptPosition } from "../../data/concepts";
+import { pipelineNodes, stages } from "../../data/pipeline";
+import { href } from "../../lib/site";
+
+// Observability term, its closest data engineering term, and how the two differ.
+const toDataEngineering: [string, string, string][] = [
+  ["Service", "Pipeline, DAG or job", "A job runs on a schedule and then finishes, rather than serving requests continuously. In this demo, contoso_orders is the pipeline."],
+  ["Request or trace", "Run (a DAG run or a task run)", "A run has a status and a duration, as a request does, and also inputs and outputs: the datasets it read and wrote."],
+  ["Span", "Task", "The tasks in a run depend on one another, as the spans in a trace do."],
+  ["Error rate", "Failed runs and failed quality checks", "A run can succeed while producing incorrect data, so data quality checks act as a second error signal."],
+  ["Latency", "Freshness", "Freshness measures how long ago a table last received new data, not how long one operation took."],
+  ["Throughput", "Volume", "The number of rows each run loads. An unexpected drop is often the first sign of a problem further upstream."],
+  ["Service map", "Lineage", "Lineage connects datasets and the jobs that produce them, down to individual columns, rather than services and the calls between them."],
+  ["Service level objective", "Freshness or volume target", "For example, that the marts are never more than 45 minutes behind, which is what the demo's freshness monitors check. Teams that publish such targets often call them data contracts or data SLAs."],
+  ["Breaking API change", "Schema change", "Renaming or removing a column breaks every job that reads it, usually without any error where the change was made."],
+];
+
+// Data engineering idea, where it appears in Datadog, and what to know about it.
+const toObservability: [string, string, string][] = [
+  ["The history of a DAG's runs", "Data Jobs Monitoring", "Built from OpenLineage events, one per run and task. APM shows the same runs from inside Airflow's processes, through OpenTelemetry. The difference is the subject of the lineage and traces lesson."],
+  ["A lineage graph", "A distributed trace", "Both show how work flows from one component to the next. A trace follows one request across services within seconds; lineage follows data across jobs over hours, and persists after the runs end."],
+  ["A data quality check, such as check_staging", "A monitor", "A check inside the pipeline stops the run. A monitor alerts a person, and can watch a table that no pipeline task checks. Datadog's data quality monitors run their queries against the tables on a schedule."],
+  ["Task logs", "Logs, linked to traces", "Lines written during a task carry the trace and span IDs of that task, so a log line opens the run's trace."],
+  ["Row counts and table freshness", "Metrics", "Datadog records them over time, so a monitor can compare the latest value with the usual one rather than with a fixed threshold."],
+  ["The team that owns a table", "Service ownership", "In both fields, an alert is useful only when it reaches the team that can fix the cause."],
+];
+
+const stepsByStage = Object.fromEntries(stages.map((s) => [s.id, pipelineNodes.filter((n) => n.stage === s.id).map((n) => n.title)]));
+---
+
+<Base
+  title="Observability and data engineering terms"
+  description="The terms observability and data engineering use for the same ideas, mapped in both directions, and the five stages of the data engineering lifecycle."
+>
+  <a class="back-link" href={href("concepts/")}>← All concepts</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">{conceptPosition("terminology")}</Text>
+      <Text as="h1" size="xxl" weight="bold">Observability and data engineering terms</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        Observability and data engineering describe many of the same ideas in different words. This lesson maps the terms in both directions: for an observability practitioner who is new to data pipelines, and for a data engineer who is new to observability. It then introduces the five stages of the data engineering lifecycle, which the rest of the course uses to place each component.
+      </Text>
+    </header>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">From observability to data engineering</Text>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Observability term</th><th>Closest data engineering term</th><th>How they differ</th></tr>
+        </thead>
+        <tbody>
+          {toDataEngineering.map(([from, to, note]) => <tr><td>{from}</td><td><strong>{to}</strong></td><td><Rich text={note} /></td></tr>)}
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">From data engineering to observability</Text>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Data engineering concept</th><th>Counterpart in Datadog</th><th>What to know</th></tr>
+        </thead>
+        <tbody>
+          {toObservability.map(([from, to, note]) => <tr><td><Rich text={from} /></td><td><strong>{to}</strong></td><td><Rich text={note} /></td></tr>)}
+        </tbody>
+      </table>
+      </div>
+      <Text as="p" size="sm" variant="secondary">
+        The difference between Data Jobs Monitoring and APM, and between OpenLineage and OpenTelemetry, is covered in <a href={href("concepts/lineage-and-traces/")}>Lineage events and traces</a>.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">The data engineering lifecycle</Text>
+      <Text as="p">
+        Most data platforms, whatever their vendor, move data through the same five stages. The names below are those of Joe Reis and Matt Housley's <em>Fundamentals of Data Engineering</em> (O'Reilly, 2022), which describes the lifecycle without reference to any one product. Vendor documentation uses variations: Databricks, for example, calls the fourth stage processing and transformation, and treats governance as a sixth stage.
+      </Text>
+      <dl class="benefits">
+        {
+          stages.map((s) => (
+            <>
+              <dt>{s.name}</dt>
+              <dd>
+                {s.meaning}
+                <span class="stage-steps"> In this demo: {stepsByStage[s.id].join(", ")}.</span>
+              </dd>
+            </>
+          ))
+        }
+      </dl>
+      <Text as="p" size="sm" variant="secondary">
+        In this demo the tasks transform and the tables store, so the raw, staging and mart tables are all labeled as storage. The book adds six concerns that apply to every stage: security, data management, DataOps, data architecture, orchestration and software engineering. Data quality and governance belong to data management. The <a href={href()}>pipeline diagram</a> on the home page labels each step with its stage.
+      </Text>
+    </section>
+
+    <ConceptPager slug="terminology" />
+  </article>
+</Base>
