@@ -516,6 +516,7 @@
   .incident,
   .lab,
   .bits,
+  .objectives,
   .callout {
     display: grid;
     gap: 6px;
@@ -1408,6 +1409,11 @@
     display: grid;
     gap: 6px;
     font-size: 14px;
+  }
+  /* Learning objectives, before a lesson's or module's content. */
+  .objectives {
+    --rule: var(--ui-text-tertiary);
+    --rule-soft: var(--ui-background-secondary);
   }
   main > .callout {
     margin-top: 40px;

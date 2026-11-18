@@ -1,5 +1,6 @@
 ---
 import { Text } from "@datadog/druids/typography/Text";
+import Objectives from "../../components/Objectives.astro";
 import LessonDone from "../../components/LessonDone.tsx";
 import Rich from "../../components/Rich.astro";
 import LessonNav from "../../components/LessonNav.tsx";
@@ -47,6 +48,8 @@ const face = avatarUri(persona.slug);
           <Text as="p" size="lg" variant="secondary">{persona.role}</Text>
         </div>
       </header>
+
+      <Objectives unit="module" items={persona.objectives} />
 
       <section id="meet" class="lesson">
         <Text as="h2" size="lg" weight="bold">1. {title("meet")}</Text>

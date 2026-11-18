@@ -6,7 +6,8 @@ import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode, Tone } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
 import { categories, categoryById, makers, matrix, tools, type CategoryId } from "../../data/landscape";
-import { conceptPosition } from "../../data/concepts";
+import Objectives from "../../components/Objectives.astro";
+import { conceptLessons, conceptPosition } from "../../data/concepts";
 import { href } from "../../lib/site";
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -98,6 +99,8 @@ const spanning = tools.filter((t) => (t.also?.length ?? 0) >= 2);
         considerably shorter.
       </Text>
     </header>
+
+    <Objectives unit="lesson" items={conceptLessons.find((l) => l.slug === "landscape")!.objectives} />
 
     <section class="lesson">
       <Text as="h2" size="lg" weight="bold">Functions in order of data flow</Text>

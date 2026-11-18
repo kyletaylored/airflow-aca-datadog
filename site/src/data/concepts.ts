@@ -1,33 +1,56 @@
-// The concept lessons, in reading order, and a short glossary they share.
+// The concept lessons, in reading order, and a short glossary they share. Each lesson's objectives
+// say what the learner can do after it: two or three statements, each starting with a verb.
 
 export const conceptLessons = [
   {
     slug: "terminology",
     title: "Observability and data engineering terms",
+    objectives: [
+      "Translate common observability terms into their data engineering equivalents, and the reverse.",
+      "Name the five stages of the data engineering lifecycle, and place each component of the demo in one of them.",
+    ],
     summary:
       "The terms both fields use for the same ideas, mapped in both directions, and the five stages of the data engineering lifecycle that the course uses to place each component.",
   },
   {
     slug: "why-pipelines",
     title: "The case for a distributed pipeline",
+    objectives: [
+      "Compare a single shared database with a pipeline in which each team owns one step.",
+      "List the benefits of the additional components, and their costs.",
+      "Explain why a distributed pipeline makes failures harder to see.",
+    ],
     summary:
       "A single shared database compared with a pipeline in which each team owns one step, and the benefits and costs of the additional components.",
   },
   {
     slug: "medallion",
     title: "Medallion architecture",
+    objectives: [
+      "Describe the bronze, silver and gold layers, and the demo tables in each.",
+      "Explain what layering makes possible: rebuilding from raw data, containing problems, and serving separate audiences.",
+      "Distinguish ETL from ELT.",
+    ],
     summary:
       "Bronze, silver and gold: raw data retained as it arrived, cleaned data, and business-ready tables. The correspondence to this demo's raw, staging and marts schemas, and a comparison of ETL and ELT.",
   },
   {
     slug: "landscape",
     title: "The data tool landscape",
+    objectives: [
+      "Group the common data products by the function each performs.",
+      "Identify the equivalent of a product on each major cloud provider.",
+    ],
     summary:
       "Airflow, dbt, Fivetran, Snowflake, Kafka, Power BI and approximately twenty other products, grouped by function, with each cloud provider's equivalent shown side by side.",
   },
   {
     slug: "lineage-and-traces",
     title: "Lineage events and traces",
+    objectives: [
+      "Distinguish what OpenLineage reports from what OpenTelemetry reports.",
+      "Choose between Data Jobs Monitoring and APM for a given question about a pipeline.",
+    ],
     summary:
       "The two kinds of telemetry Airflow sends to Datadog: OpenLineage events for Data Jobs Monitoring, which describe what each pipeline did, and OpenTelemetry traces for APM, which describe how Airflow did the work.",
   },

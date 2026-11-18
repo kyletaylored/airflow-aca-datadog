@@ -5,7 +5,8 @@ import Diagram from "../../components/Diagram.astro";
 import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
-import { conceptPosition } from "../../data/concepts";
+import Objectives from "../../components/Objectives.astro";
+import { conceptLessons, conceptPosition } from "../../data/concepts";
 import { href } from "../../lib/site";
 
 const oneDbNodes: FlowNode[] = [
@@ -58,6 +59,8 @@ const pipeEdges: FlowEdge[] = [
         grows, and explains the structure of the demo's pipeline.
       </Text>
     </header>
+
+    <Objectives unit="lesson" items={conceptLessons.find((l) => l.slug === "why-pipelines")!.objectives} />
 
     <section class="lesson">
       <Text as="h2" size="lg" weight="bold">The baseline: a single shared database</Text>

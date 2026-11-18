@@ -3,7 +3,8 @@ import { Text } from "@datadog/druids/typography/Text";
 import ConceptPager from "../../components/ConceptPager.astro";
 import Rich from "../../components/Rich.astro";
 import Base from "../../layouts/Base.astro";
-import { conceptPosition } from "../../data/concepts";
+import Objectives from "../../components/Objectives.astro";
+import { conceptLessons, conceptPosition } from "../../data/concepts";
 import { pipelineNodes, stages } from "../../data/pipeline";
 import { href } from "../../lib/site";
 
@@ -46,6 +47,8 @@ const stepsByStage = Object.fromEntries(stages.map((s) => [s.id, pipelineNodes.f
         Observability and data engineering describe many of the same ideas in different words. This lesson maps the terms in both directions: for an observability practitioner who is new to data pipelines, and for a data engineer who is new to observability. It then introduces the five stages of the data engineering lifecycle, which the rest of the course uses to place each component.
       </Text>
     </header>
+
+    <Objectives unit="lesson" items={conceptLessons.find((l) => l.slug === "terminology")!.objectives} />
 
     <section class="lesson">
       <Text as="h2" size="lg" weight="bold">From observability to data engineering</Text>

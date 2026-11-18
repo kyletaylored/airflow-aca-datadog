@@ -5,7 +5,8 @@ import Diagram from "../../components/Diagram.astro";
 import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
-import { conceptPosition } from "../../data/concepts";
+import Objectives from "../../components/Objectives.astro";
+import { conceptLessons, conceptPosition } from "../../data/concepts";
 import { href } from "../../lib/site";
 
 const nodes: FlowNode[] = [
@@ -61,6 +62,8 @@ const etlEdges: FlowEdge[] = [
         This demo already follows the pattern, using the layer names that dbt made standard.
       </Text>
     </header>
+
+    <Objectives unit="lesson" items={conceptLessons.find((l) => l.slug === "medallion")!.objectives} />
 
     <section class="lesson">
       <Text as="h2" size="lg" weight="bold">The three layers and the demo tables in each</Text>
