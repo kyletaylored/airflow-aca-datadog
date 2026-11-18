@@ -24,7 +24,8 @@ def plugin(monkeypatch):
     monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp")
     monkeypatch.setenv("OTEL_SERVICE_NAME", "airflow-test")
     current = airflow_structlog.structlog_processors
-    original = getattr(current, "__wrapped__", current)
+    # Unwrap only the plugin's own wrapper: functools.cache sets __wrapped__ too.
+    original = current.__wrapped__ if getattr(current, "_otel_wrapped", False) else current
     # Start from Airflow's own chain builder, and put it back afterwards.
     monkeypatch.setattr(airflow_structlog, "structlog_processors", original)
     sys.modules.pop("otel_logging_config", None)
@@ -34,7 +35,8 @@ def plugin(monkeypatch):
     monkeypatch.setattr(module, "_handler", capture)
     yield module, capture
     # The builder is cached and the plugin appends to its result, so drop that result too.
-    original.cache_clear()
+    if hasattr(original, "cache_clear"):
+        original.cache_clear()
     sys.modules.pop("otel_logging_config", None)
 
 
