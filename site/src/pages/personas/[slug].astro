@@ -1,7 +1,6 @@
 ---
 import { Text } from "@datadog/druids/typography/Text";
 import Objectives from "../../components/Objectives.astro";
-import LessonDone from "../../components/LessonDone.tsx";
 import Rich from "../../components/Rich.astro";
 import LessonNav from "../../components/LessonNav.tsx";
 import MonitorCard from "../../components/MonitorCard.astro";
@@ -60,7 +59,6 @@ const face = avatarUri(persona.slug);
           <dt>Owns</dt>
           <dd><Rich text={persona.owns} /></dd>
         </dl>
-        <LessonDone client:only="react" slug={persona.slug} lesson="meet"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="tech" class="lesson">
@@ -101,13 +99,11 @@ const face = avatarUri(persona.slug);
           {persona.name}'s steps are highlighted below. Select any step to view its function and the Datadog products that monitor it.
         </Text>
         <Pipeline focus={persona.diagram.focus} height={380} />
-        <LessonDone client:only="react" slug={persona.slug} lesson="tech"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="responsibilities" class="lesson">
         <Text as="h2" size="lg" weight="bold">3. {title("responsibilities")}</Text>
         <ul class="ticks">{persona.responsibilities.map((r) => <li><Rich text={r} /></li>)}</ul>
-        <LessonDone client:only="react" slug={persona.slug} lesson="responsibilities"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="problem" class="lesson">
@@ -141,14 +137,12 @@ const face = avatarUri(persona.slug);
               the demo guide</a>.
           </Text>
         </div>
-        <LessonDone client:only="react" slug={persona.slug} lesson="problem"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="detect" class="lesson">
         <Text as="h2" size="lg" weight="bold">5. {title("detect")}</Text>
         <Text as="p"><Rich text={persona.detect.intro} /></Text>
         {persona.detect.monitors.map((id) => <MonitorCard id={id} />)}
-        <LessonDone client:only="react" slug={persona.slug} lesson="detect"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="investigate" class="lesson">
@@ -167,7 +161,6 @@ const face = avatarUri(persona.slug);
           <ToolTag tool="bits" size="xs" />
           <Text as="p"><Rich text={persona.bits} /></Text>
         </div>
-        <LessonDone client:only="react" slug={persona.slug} lesson="investigate"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="resolve" class="lesson">
@@ -186,7 +179,6 @@ const face = avatarUri(persona.slug);
             ))
           }
         </ul>
-        <LessonDone client:only="react" slug={persona.slug} lesson="resolve"><span slot="fallback" class="lesson-done-fallback" /></LessonDone>
       </section>
 
       <section id="check" class="lesson">

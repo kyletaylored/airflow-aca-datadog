@@ -164,8 +164,8 @@ const questions: Question[] = [
     </section>
 
     <section class="lesson">
-      <Text as="h2" size="lg" weight="bold">Knowledge check</Text>
-      <Quiz client:only="react" slug="scenario" questions={questions}>
+      <Text as="h2" size="lg" weight="bold">Knowledge check and sign-off</Text>
+      <Quiz client:only="react" slug="scenario" questions={questions} unit="scenario">
         <ol slot="fallback" class="ticks">
           {questions.map((q) => <li>{q.prompt}</li>)}
         </ol>
