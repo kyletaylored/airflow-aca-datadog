@@ -19,6 +19,12 @@ export const conceptLessons = [
     summary:
       "Airflow, dbt, Fivetran, Snowflake, Kafka, Power BI and approximately twenty other products, grouped by function, with each cloud provider's equivalent shown side by side.",
   },
+  {
+    slug: "lineage-and-traces",
+    title: "Lineage events and traces",
+    summary:
+      "The two kinds of telemetry Airflow sends to Datadog: OpenLineage events for Data Jobs Monitoring, which describe what each pipeline did, and OpenTelemetry traces for APM, which describe how Airflow did the work.",
+  },
 ] as const;
 
 export const glossary: { term: string; meaning: string }[] = [
@@ -34,4 +40,7 @@ export const glossary: { term: string; meaning: string }[] = [
   { term: "Semantic layer", meaning: "Metric and join definitions maintained in one place, so that every dashboard computes revenue consistently." },
   { term: "Reverse ETL", meaning: "Syncing modeled data from the warehouse back into operational tools such as a CRM." },
   { term: "Lineage", meaning: "The record of which datasets each dataset is derived from, and which jobs produced it; used to trace an incorrect figure to its cause." },
+  { term: "OpenLineage", meaning: "An open standard for reporting job runs and the datasets they read and write. Airflow, dbt and Spark emit it, and Data Jobs Monitoring reads it." },
+  { term: "OpenTelemetry", meaning: "An open standard for traces, metrics and logs from running software. Airflow emits it for its own processes, and APM reads the traces." },
+  { term: "Trace and span", meaning: "A trace records one request or unit of work; each span within it records one step, such as a function call or an HTTP request, with its start time and duration." },
 ];
