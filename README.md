@@ -82,7 +82,7 @@ flowchart LR
 
 Telemetry reaches Datadog by two independent paths:
 
-- **APM:** every Airflow app exports OTLP to the environment's managed OpenTelemetry agent, which forwards traces and metrics to Datadog.
+- **APM:** every Airflow app exports OTLP to the environment's managed OpenTelemetry agent, which forwards traces, metrics and logs to Datadog.
 - **Data Jobs Monitoring:** the OpenLineage listener on the scheduler, where tasks run, and each ACA Job execution post OpenLineage events straight to Datadog's intake. The agent isn't involved.
 
 ---
@@ -121,7 +121,7 @@ OTEL_SERVICE_NAME=airflow-scheduler                # per app
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>
 ```
 
-ACA injects the agent's endpoint into every app. **Don't set any `OTEL_EXPORTER_OTLP_*` variable yourself:** if you set even one, ACA stops injecting all of them, and nothing is exported. Outside ACA, set `OTEL_EXPORTER_OTLP_ENDPOINT` to a Datadog Agent with OTLP ingest turned on (for example `http://<agent>:4317`) instead of doing 2a.
+ACA injects the agent's endpoint into every app. **Don't set any `OTEL_EXPORTER_OTLP_*` variable yourself:** in this demo, setting only `OTEL_EXPORTER_OTLP_PROTOCOL` left every app without an endpoint, and nothing was exported (see [Known issues](#known-issues)). Outside ACA, set `OTEL_EXPORTER_OTLP_ENDPOINT` to a Datadog Agent with OTLP ingest turned on (for example `http://<agent>:4317`) instead of doing 2a.
 
 **You get:** one APM service per Airflow component, with traces of the scheduler, the task process and the triggerer.
 
@@ -159,7 +159,7 @@ They are not the same data. OpenLineage reports **what your pipelines did**: one
 | Which operator, owner, tags, params, schedule, run type? | ✅ Attached to every run as tags | Some, as span attributes |
 | Where did the time go *inside* a task: queueing, the scheduler, an API call? | ❌ | ✅ Scheduler/worker/triggerer spans and HTTP client spans (here: each Azure ARM call, with latency and status code) |
 | Is Airflow itself healthy (heartbeats, executor and pool slots, DAG parse time)? | ❌ | ✅ Airflow's OTel metrics |
-| Task logs next to the run | When logs are collected with `source:airflow` | Logs carrying trace ids (this repo's log handler), but only through a Datadog Agent or another collector; see [Known issues](#known-issues) |
+| Task logs next to the run | When logs are collected with `source:airflow` | Airflow's logs with trace ids, through this repo's logging plugin and the managed agent |
 
 **Rule of thumb:** the team that owns the DAGs starts with Data Jobs Monitoring, because it is organized around DAGs and data. APM is for the team that runs Airflow itself, or for when a slow task's cause sits inside Airflow or in the services a task calls.
 
@@ -213,7 +213,7 @@ Only the scheduler needs the first four variables, because tasks run there with 
 
 ### APM (OpenTelemetry) settings
 
-**Container Apps environment (not environment variables).** The environment's `openTelemetryConfiguration` gives the managed agent a Datadog destination (site and API key). It routes traces to that destination, plus metrics if `TELEMETRY_SIGNALS` includes them (for logs, see [Known issues](#known-issues)). The agent can't read Key Vault or Container Apps secrets, so the key is passed in as a secure deployment parameter and stored on the environment.
+**Container Apps environment (not environment variables).** The environment's `openTelemetryConfiguration` gives the managed agent a Datadog destination (site and API key). It routes traces to that destination, plus metrics and logs if `TELEMETRY_SIGNALS` includes them. The agent can't read Key Vault or Container Apps secrets, so the key is passed in as a secure deployment parameter and stored on the environment.
 
 **Injected by ACA.** ACA adds `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL` (gRPC) to every app and job, pointing at the agent. They aren't in the Bicep. Don't set either one yourself (see [Known issues](#known-issues)).
 
@@ -223,7 +223,7 @@ Only the scheduler needs the first four variables, because tasks run there with 
 |---|---|---|---|
 | `AIRFLOW__TRACES__OTEL_ON` | `True` | Airflow apps | Traces |
 | `AIRFLOW__METRICS__OTEL_ON` | `True` | Airflow apps, when metrics are on | Metrics |
-| `AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS` | `otel_logging_config.LOGGING_CONFIG` | Airflow apps, when logs are on | Logs. The handler is plugin code on the Azure Files share |
+| `AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS` | `otel_logging_config.LOGGING_CONFIG` | Airflow apps, when logs are on | Logs. The logging plugin is code on the Azure Files share |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp`, or `none` for a signal that's turned off | Airflow apps | Which signals to send |
 | `OTEL_SERVICE_NAME` | `airflow-aca-<component>` | Each app, with its own value | One service per component |
 | `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace` | Each app, with its own value | Ties each service to its container app |
@@ -233,7 +233,7 @@ The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too,
 
 ### Additional instrumentation
 
-- **Logs.** Airflow has no native OTel logs, so [`plugins/otel_logging_config.py`](airflow/plugins/otel_logging_config.py) adds an OTLP log handler to Airflow's logging config. Records emitted inside a span carry its trace id. The managed agent doesn't deliver them to Datadog yet (see [Known issues](#known-issues)), so the handler only helps with a Datadog Agent or another OTLP collector.
+- **Logs.** Airflow has no native OTel logs, and Airflow 3 leaves no room for a plain logging handler: it resets the root and `airflow` loggers' handlers, and most of its code logs through structlog, which skips stdlib handlers. So [`plugins/otel_logging_config.py`](airflow/plugins/otel_logging_config.py) adds a processor to the structlog chain that both structlog and stdlib lines pass through, and exports each line over OTLP. Lines logged inside a span carry its trace id, and each line gets `dd.service` so Datadog can set its service (see [Known issues](#known-issues)). On Airflow 2 it adds a plain OTLP handler instead.
 - **Azure API spans.** The scheduler and triggerer install `opentelemetry-instrumentation-requests` at startup (`_PIP_ADDITIONAL_REQUIREMENTS`, pinned to the image's OTel SDK), and the operator plugin turns it on. Each ARM call (start the job, poll its execution) and managed-identity token fetch becomes a client span under the task's `worker.*` / `trigger.*` span, with resources like `POST Microsoft.App/jobs/{job}/start`. For production, bake the package into a custom image instead.
 - **ACA Job runs nested under the task that started them.** `OPENLINEAGE_PARENT_ID` and `OPENLINEAGE_ROOT_PARENT_ID` use the same format dbt-ol reads. A job that sends its own OpenLineage START and COMPLETE events with those IDs as its parent shows up in Datadog under that Airflow task, the way Databricks runs do. Its datasets also join the lineage graph. [`airflow/dags/jobs/contoso_store_job.py`](airflow/dags/jobs/contoso_store_job.py) is an example that uses only the standard library. In your own job, the `openlineage-python` client with `OPENLINEAGE__TRANSPORT__TYPE=datadog` does the same thing.
 
@@ -299,8 +299,8 @@ The deploy assigns the Airflow managed identity a role on the resource group, wh
 
 ## Known issues
 
-- **Logs don't reach Datadog through the managed agent.** The environment accepts Datadog as a logs destination, and the Airflow apps export OTLP logs, but in this demo none have arrived in Datadog. Use the managed agent for traces and metrics. For logs, collect them with a Datadog Agent, or forward the environment's console logs from Azure Monitor with the Azure integration.
-- **Setting one `OTEL_EXPORTER_OTLP_*` variable turns off ACA's injection.** ACA injects the agent's endpoint and protocol only when an app defines none of them. Setting just `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` left every app without an endpoint, and nothing was exported.
+- **Logs from the managed agent have no service unless they carry `dd.service`.** Datadog keeps the `service.name` resource attribute only as a nested attribute, so the log's service stays empty and `service:` searches miss it. The logging plugin sets `dd.service` from `OTEL_SERVICE_NAME`. For logs from other OTel SDKs, set the same attribute, or add a service remapper on `service.name` to a Datadog log pipeline.
+- **Setting `OTEL_EXPORTER_OTLP_PROTOCOL` stopped all export.** In this demo, setting just `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` on the Airflow apps left them without an endpoint, and nothing was exported until it was removed. Microsoft's docs say a variable you set only overrides the injected one; we haven't tested the other variables.
 - **`env:none` on spans.** The managed agent maps Datadog `env` only from `deployment.environment`, not from `deployment.environment.name` alone. Set both.
 - **OpenLineage's own HTTP calls.** With `requests` instrumentation on, the OpenLineage transport's POSTs to `data-obs-intake.*` would each become a stray single-span trace (its listener runs outside the task span), so the plugin excludes that host.
 - **ARM `403 The request is blocked`.** Consumption ACA environments share outbound IPs, and ARM's edge once blocked the one the scheduler used. A new revision moved it to another IP. If you need a stable outbound IP, put the environment on a VNet with a NAT gateway.
