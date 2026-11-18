@@ -29,10 +29,11 @@ export const conceptLessons = [
     objectives: [
       "Describe the bronze, silver and gold layers, and the demo tables in each.",
       "Explain what layering makes possible: rebuilding from raw data, containing problems, and serving separate audiences.",
+      "Name the five data quality dimensions, and the demo monitors that cover each one.",
       "Distinguish ETL from ELT.",
     ],
     summary:
-      "Bronze, silver and gold: raw data retained as it arrived, cleaned data, and business-ready tables. The correspondence to this demo's raw, staging and marts schemas, and a comparison of ETL and ELT.",
+      "Bronze, silver and gold: raw data retained as it arrived, cleaned data, and business-ready tables. The correspondence to this demo's raw, staging and marts schemas, the five data quality dimensions, and a comparison of ETL and ELT.",
   },
   {
     slug: "landscape",
@@ -74,6 +75,8 @@ export const glossary: { term: string; meaning: string }[] = [
   { term: "Semantic layer", meaning: "Metric and join definitions maintained in one place, so that every dashboard computes revenue consistently." },
   { term: "Reverse ETL", meaning: "Syncing modeled data from the warehouse back into operational tools such as a CRM." },
   { term: "Lineage", meaning: "The record of which datasets each dataset is derived from, and which jobs produced it; used to trace an incorrect figure to its cause." },
+  { term: "Data quality dimensions", meaning: "Freshness, volume, schema, distribution and lineage: the questions data quality monitoring asks of a table. The medallion lesson maps each to the demo's monitors." },
+  { term: "Data governance", meaning: "The policies and controls for who may access which data, how sensitive fields such as email addresses are protected, how long data is retained, and how ownership and lineage are recorded. In the data engineering lifecycle it applies to every stage rather than being a stage of its own." },
   { term: "OpenLineage", meaning: "An open standard for reporting job runs and the datasets they read and write. Airflow, dbt and Spark emit it, and Data Jobs Monitoring reads it." },
   { term: "OpenTelemetry", meaning: "An open standard for traces, metrics and logs from running software. Airflow emits it for its own processes, and APM reads the traces." },
   { term: "Trace and span", meaning: "A trace records one request or unit of work; each span within it records one step, such as a function call or an HTTP request, with its start time and duration." },

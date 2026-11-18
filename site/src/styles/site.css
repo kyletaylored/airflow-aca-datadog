@@ -1410,6 +1410,13 @@
     gap: 6px;
     font-size: 14px;
   }
+  .dimension-monitors {
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+  }
   /* Learning objectives, before a lesson's or module's content. */
   .objectives {
     --rule: var(--ui-text-tertiary);
