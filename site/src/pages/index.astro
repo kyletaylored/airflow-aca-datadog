@@ -2,17 +2,9 @@
 import { Text } from "@datadog/druids/typography/Text";
 import PersonaCard from "../components/PersonaCard.astro";
 import Pipeline from "../components/Pipeline.astro";
-import Stats from "../components/Stats.tsx";
 import Base from "../layouts/Base.astro";
 import { personas } from "../data/personas";
-import { tools } from "../data/tools";
 import { href } from "../lib/site";
-
-const stats = [
-  { value: personas.length, label: "Personas" },
-  { value: tools.length, label: "Datadog tools" },
-  { value: 15, unit: "min", label: "Between pipeline runs" },
-];
 ---
 
 <Base
@@ -30,19 +22,13 @@ const stats = [
       minutes. Five people operate that pipeline. Each module follows one of them, covering the components they own,
       the incident that occurs in their area, and the Datadog products that detect it and identify its cause.
     </Text>
-    <Stats client:only="react" stats={stats}>
-      <ul slot="fallback" class="stats stats-fallback">
-        {stats.map((s) => <li><strong>{s.value}{s.unit ? ` ${s.unit}` : ""}</strong> {s.label}</li>)}
-      </ul>
-    </Stats>
   </section>
 
   <section aria-labelledby="pipeline-heading">
     <div class="section-head">
       <Text as="h2" size="lg" weight="bold" id="pipeline-heading">The order flow and the owner of each step</Text>
       <Text as="p" variant="secondary">
-        An order reaches the dashboards within approximately 20 minutes of checkout. Each step is colored by its owner and
-        labeled with the Datadog products that monitor it. Select a step to view its details.
+        An order reaches the dashboards within approximately 20 minutes of checkout. Each step is colored by its owner and labeled with its stage in the data engineering lifecycle and the Datadog products that monitor it. Select a step to view its details.
       </Text>
     </div>
     <Pipeline height={600} initial="storefront" />
@@ -62,9 +48,19 @@ const stats = [
 
   <section class="callout-band">
     <div>
+      <Text as="h2" size="lg" weight="bold">A cross-team incident</Text>
+      <Text as="p" variant="secondary">
+        A storefront release breaks a dashboard three teams downstream. This scenario follows the problem from the dashboard back to its cause, and shows how the answer can reach the right team without a search.
+      </Text>
+    </div>
+    <a class="button-link" href={href("scenario/")}>Work through the scenario</a>
+  </section>
+
+  <section class="callout-band">
+    <div>
       <Text as="h2" size="lg" weight="bold">Data engineering concepts</Text>
       <Text as="p" variant="secondary">
-        The rationale for distributed pipelines, the medallion architecture, the data tool landscape grouped by function, and how lineage events differ from traces.
+        The terms observability and data engineering share, the rationale for distributed pipelines, the medallion architecture, the data tool landscape grouped by function, and how lineage events differ from traces.
       </Text>
     </div>
     <a class="button-link" href={href("concepts/")}>Read the concepts</a>

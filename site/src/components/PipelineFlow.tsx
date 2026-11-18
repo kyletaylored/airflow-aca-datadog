@@ -20,6 +20,7 @@ import {
   ownerColors,
   pipelineEdges,
   pipelineNodes,
+  stages,
   type DiagramMark,
   type NodeId,
   type Owner,
@@ -72,6 +73,7 @@ function StepNode({ data }: NodeProps<Node<StepData>>) {
       <div className="pf-owner">
         <img src={avatar} alt="" width={20} height={20} />
         <span>{ownerName}</span>
+        <span className="pf-stage">{stageName[step.stage]}</span>
       </div>
       <div className="pf-title">{step.title}</div>
       <div className="pf-kind">{step.kind}</div>
@@ -94,6 +96,8 @@ function StepNode({ data }: NodeProps<Node<StepData>>) {
     </div>
   );
 }
+
+const stageName = Object.fromEntries(stages.map((s) => [s.id, s.name]));
 
 const nodeTypes = { step: StepNode };
 

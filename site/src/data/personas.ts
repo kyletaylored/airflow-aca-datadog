@@ -35,6 +35,8 @@ export interface Persona {
   role: string;
   owns: string;
   summary: string;
+  // What the learner can do after the module: two or three statements, each starting with a verb.
+  objectives: string[];
   // DiceBear "notionists" seed for the face.
   avatarSeed: string;
   stack: StackItem[];
@@ -95,6 +97,11 @@ export const personas: Persona[] = [
     owns: "The storefront and the order processor, up to the files in the landing zone",
     summary:
       "Dave builds the services that accept orders and pass them to the data team. When the data is incorrect, Dave needs to determine quickly whether a release caused the problem.",
+    objectives: [
+      "Trace an order from the storefront, through Event Hubs and the order processor, to the files in the landing zone.",
+      "Explain why a release that stops sending a field causes no error at the source, and where the problem first becomes visible.",
+      "Use lineage and Data Streams Monitoring to distinguish a problem in the data from a problem in its delivery.",
+    ],
     avatarSeed: "dave-4",
     stack: [
       { kind: "Language", name: "Python 3.12", detail: "Both services, on the stock python:3.12-slim image." },
@@ -216,6 +223,11 @@ export const personas: Persona[] = [
     owns: "The warehouse design: the schemas and tables, and what each column means",
     summary:
       "Rajesh determines the structure of the warehouse. A rename that appears harmless in raw can break every table built on it, so Rajesh needs to see what depends on a column before changing it.",
+    objectives: [
+      "Describe the raw, staging and marts schemas, and what each layer guarantees to the next.",
+      "Explain how renaming a column breaks the tasks that read it, even though the load that wrote it succeeds.",
+      "Use a failed run in Data Jobs Monitoring and column-level lineage to find every column that a schema change affects.",
+    ],
     avatarSeed: "rajesh-9",
     stack: [
       {
@@ -324,6 +336,11 @@ export const personas: Persona[] = [
     owns: "The Airflow pipelines that move data from the landing zone through raw and staging",
     summary:
       "Emily operates the loads. A run that succeeds without moving any data is the most difficult failure to detect: no status changes until someone notices the figures.",
+    objectives: [
+      "Describe how Airflow loads the landing files into raw and staging every 15 minutes.",
+      "Explain why a run can succeed while loading no data, and which monitors detect it when the job monitor cannot.",
+      "Use row counts in Data Jobs Monitoring and Airflow's traces in APM to distinguish a data problem from a platform problem.",
+    ],
     avatarSeed: "emily-7",
     stack: [
       {
@@ -429,6 +446,11 @@ export const personas: Persona[] = [
     owns: "The marts transformations: the SQL that turns clean orders into business metrics",
     summary:
       "Priya writes the business logic. A defect there produces figures that appear plausible but are incorrect, while the pipeline itself reports nothing unusual.",
+    objectives: [
+      "Describe how the mart tasks turn staging.orders into business-ready tables.",
+      "Explain why an error in business logic passes every pipeline check, and how a rule applied to the figures detects it.",
+      "Use lineage to confirm that a problem originates in a mart rather than further upstream.",
+    ],
     avatarSeed: "priya-5",
     stack: [
       {
@@ -518,6 +540,11 @@ export const personas: Persona[] = [
     owns: "The reports built on the marts tables, and the people who read them",
     summary:
       "John's work does not cause failures, but John is the first to hear about them. Whatever fails upstream, John must answer the same two questions: which reports are incorrect, and which team owns the problem.",
+    objectives: [
+      "Describe how the Metabase dashboards depend on the marts tables.",
+      "Use downstream lineage to identify which dashboards an upstream problem affects.",
+      "Identify the team that owns a problem from its lineage path, and tell readers which reports remain trustworthy.",
+    ],
     avatarSeed: "john-1",
     stack: [
       {

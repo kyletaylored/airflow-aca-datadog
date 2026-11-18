@@ -1,0 +1,17 @@
+---
+// What the learner can do after a lesson or module, shown before its content.
+import { Text } from "@datadog/druids/typography/Text";
+
+interface Props {
+  items: readonly string[];
+  // "lesson" or "module", for the lead-in sentence.
+  unit: string;
+}
+
+const { items, unit } = Astro.props;
+---
+
+<section class="objectives" aria-label="Learning objectives">
+  <Text as="p" size="sm" weight="bold">After this {unit}, you will be able to:</Text>
+  <ul class="ticks">{items.map((item) => <li>{item}</li>)}</ul>
+</section>

@@ -5,6 +5,9 @@ import Diagram from "../../components/Diagram.astro";
 import Rich from "../../components/Rich.astro";
 import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
 import Base from "../../layouts/Base.astro";
+import Objectives from "../../components/Objectives.astro";
+import { conceptLessons, conceptPosition } from "../../data/concepts";
+import { monitors } from "../../data/monitors";
 import { href } from "../../lib/site";
 
 const nodes: FlowNode[] = [
@@ -27,6 +30,15 @@ const edges: FlowEdge[] = [
   { from: "gold", to: "bi" },
   { from: "gold", to: "ml" },
   { from: "gold", to: "rev" },
+];
+
+// The dimensions data quality monitoring is usually taught in, and the demo monitors that cover each.
+const dimensions: { name: string; question: string; monitorIds: string[]; note?: string }[] = [
+  { name: "Freshness", question: "How recently did the table receive new data?", monitorIds: ["stagingFreshness", "martFreshness"] },
+  { name: "Volume", question: "Did the expected amount of data arrive, at each layer?", monitorIds: ["rowCount", "rowGap"] },
+  { name: "Schema", question: "Did the table's structure change?", monitorIds: ["jobFailures"], note: "The demo has no schema monitor: a breaking change appears as a failed run, and Database Monitoring records each table's schema every 10 minutes." },
+  { name: "Distribution", question: "Are the values themselves plausible?", monitorIds: ["customerNulls", "negativeRevenue", "revenueAnomaly"] },
+  { name: "Lineage", question: "What does the table depend on, and what depends on it?", monitorIds: [], note: "Not a monitor: lineage is how an alert on one table leads to its cause upstream and its impact downstream." },
 ];
 
 const etlNodes: FlowNode[] = [
@@ -52,7 +64,7 @@ const etlEdges: FlowEdge[] = [
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
     <header class="hero hero-compact">
-      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 2 of 4</Text>
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">{conceptPosition("medallion")}</Text>
       <Text as="h1" size="xxl" weight="bold">Medallion architecture</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
         A medallion architecture organizes a warehouse or lakehouse into three layers of increasing refinement: bronze,
@@ -60,6 +72,8 @@ const etlEdges: FlowEdge[] = [
         This demo already follows the pattern, using the layer names that dbt made standard.
       </Text>
     </header>
+
+    <Objectives unit="lesson" items={conceptLessons.find((l) => l.slug === "medallion")!.objectives} />
 
     <section class="lesson">
       <Text as="h2" size="lg" weight="bold">The three layers and the demo tables in each</Text>
@@ -95,6 +109,34 @@ const etlEdges: FlowEdge[] = [
         <dt>Each audience works in its own layer</dt>
         <dd>Engineers work primarily in bronze and silver; analysts and BI tools read gold, where names and granularity reflect business terms.</dd>
       </dl>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Data quality dimensions</Text>
+      <Text as="p">
+        Data quality monitoring is usually described in five dimensions. Each answers a different question, and a problem in one is often invisible in the others: a table can be fresh and still hold the wrong number of rows, or the right number of rows with implausible values.
+      </Text>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Dimension</th><th>Question it answers</th><th>In this demo</th></tr>
+        </thead>
+        <tbody>
+          {
+            dimensions.map((d) => (
+              <tr>
+                <td><strong>{d.name}</strong></td>
+                <td>{d.question}</td>
+                <td>
+                  {d.monitorIds.length > 0 && <ul class="dimension-monitors">{d.monitorIds.map((id) => <li><code>{monitors[id].name}</code></li>)}</ul>}
+                  {d.note && <span>{d.note}</span>}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+      </div>
     </section>
 
     <section class="lesson">

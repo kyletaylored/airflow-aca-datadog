@@ -13,7 +13,7 @@ export const lessons = [
   { id: "detect", title: "Detection" },
   { id: "investigate", title: "Investigation" },
   { id: "resolve", title: "Resolution" },
-  { id: "check", title: "Knowledge check" },
+  { id: "check", title: "Knowledge check and sign-off" },
 ] as const;
 
 export type LessonId = (typeof lessons)[number]["id"];
