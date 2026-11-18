@@ -76,7 +76,7 @@ OPENLINEAGE_NAMESPACE=<env>      # becomes the env tag`,
         name: "APM",
         tool: "apm",
         gives:
-          "One service per Airflow component (api-server, scheduler, triggerer, dag-processor), with traces of the scheduler, the task process and the triggerer, and Airflow's metrics.",
+          "One service per Airflow component (api-server, scheduler, triggerer, dag-processor), with traces of the scheduler, the task process and the triggerer, Airflow's metrics, and its logs linked to those traces.",
         where:
           "The Container Apps environment's managed OpenTelemetry agent, plus a few variables on each Airflow app.",
         snippets: [
@@ -86,11 +86,13 @@ OPENLINEAGE_NAMESPACE=<env>      # becomes the env tag`,
   -g <resource-group> -n <environment> \\
   --site <datadog-site> --key <datadog-api-key> \\
   --enable-open-telemetry-traces true \\
-  --enable-open-telemetry-metrics true`,
+  --enable-open-telemetry-metrics true
+# the CLI has no logs flag: select Logs in the portal, or set
+# logsConfiguration in Bicep`,
             portal: [
               "Open the Container Apps environment and select **Monitoring → OTel endpoints**.",
               "On the **Datadog** row, select **Update**. Set **Site** to your Datadog site and paste your API key into **Key**.",
-              "Select **Traces** and **Metrics**, then save. **Logs** can be selected too, but in this demo they don't reach Datadog.",
+              "Select **Logs**, **Traces** and **Metrics**, then save.",
               "The row's status changes to **Configured**. To change the settings later, leave **Key** blank to keep the existing key.",
             ],
           },
@@ -100,16 +102,19 @@ OPENLINEAGE_NAMESPACE=<env>      # becomes the env tag`,
             code: `AIRFLOW__TRACES__OTEL_ON=True
 AIRFLOW__METRICS__OTEL_ON=True
 OTEL_SERVICE_NAME=airflow-scheduler      # per app
-OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>`,
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>
+# logs, through this repo's logging plugin:
+OTEL_LOGS_EXPORTER=otlp
+AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS=otel_logging_config.LOGGING_CONFIG`,
             portal: [
               "Open each Airflow container app in turn: api-server, scheduler, triggerer and dag-processor.",
               "Select **App → Containers**, then open the **Environment variables** tab.",
-              "Select **Add** for each of the four variables below, as **Manual entry**, with that app's own `OTEL_SERVICE_NAME`.",
+              "Select **Add** for each variable below, as **Manual entry**, with that app's own `OTEL_SERVICE_NAME`.",
               "Save. Container Apps deploys the change as a new revision.",
             ],
           },
         ],
-        note: "Don't set any OTEL_EXPORTER_OTLP_* variable: Container Apps injects the agent's endpoint, and stops injecting it if you set even one. The managed agent forwards traces and metrics; logs don't reach Datadog through it.",
+        note: "Don't set any OTEL_EXPORTER_OTLP_* variable: Container Apps injects the agent's endpoint, and in this demo setting just OTEL_EXPORTER_OTLP_PROTOCOL stopped all export. Airflow 3 can't send its logs over OTLP on its own; the logging plugin in airflow/plugins/otel_logging_config.py does it.",
         docs: "https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/",
         source: { label: "otelServiceEnv() in infra/main.bicep", path: "infra/main.bicep" },
       },
