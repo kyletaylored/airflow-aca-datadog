@@ -1,0 +1,99 @@
+---
+import { Text } from "@datadog/druids/typography/Text";
+import ConceptPager from "../../components/ConceptPager.astro";
+import Diagram from "../../components/Diagram.astro";
+import Rich from "../../components/Rich.astro";
+import type { FlowEdge, FlowNode } from "../../components/FlowDiagram.tsx";
+import Base from "../../layouts/Base.astro";
+import { href } from "../../lib/site";
+
+const nodes: FlowNode[] = [
+  { id: "airflow", label: "Airflow", sub: "a contoso_orders run", x: 0, y: 120, tone: "process", width: 180, detail: { text: "Every DAG run produces both kinds of telemetry at once. Neither replaces the other, and neither requires the other.", items: ["Scheduler", "Task processes", "Triggerer", "DAG processor"] } },
+  { id: "ol", label: "OpenLineage provider", sub: "an event at each start and end", x: 260, y: 0, tone: "stream", width: 230, detail: { text: "Built into Airflow 3. It sends one event when each DAG run and task run starts, and one when it ends, with its status, timing, configuration and the datasets it read and wrote. A job that a task launches can send its own events, naming the task as its parent.", items: ["Run and task status", "Error and stack trace", "Datasets in and out", "Tags, owner, schedule"] } },
+  { id: "otel", label: "OpenTelemetry SDK", sub: "spans and metrics", x: 260, y: 240, tone: "app", width: 230, detail: { text: "Also included in the Airflow 3 image. It records spans inside Airflow's own processes, including each outbound HTTP call a task makes, and Airflow's internal metrics.", items: ["Scheduler and task spans", "HTTP client spans", "Heartbeats and pool slots", "DAG parse time"] } },
+  { id: "agent", label: "Managed OpenTelemetry agent", sub: "Container Apps environment", x: 570, y: 240, tone: "control", width: 240, detail: { text: "Container Apps runs the collector and injects its endpoint into every app. It forwards traces and metrics to Datadog. In this demo it does not deliver logs." } },
+  { id: "djm", label: "Data Jobs Monitoring", sub: "a service per DAG: contoso_orders", x: 890, y: 0, tone: "serve", width: 260, detail: { text: "Organized around pipelines and data: run history for each DAG, the tasks within each run, the jobs those tasks launched, and the lineage graph that connects their datasets." } },
+  { id: "apm", label: "APM", sub: "a service per component: airflow-aca-scheduler", x: 890, y: 240, tone: "serve", width: 260, detail: { text: "Organized around Airflow's processes: a service for each component, the trace map between them, and the latency of every call a task makes." } },
+];
+const edges: FlowEdge[] = [
+  { from: "airflow", to: "ol", label: "what ran" },
+  { from: "airflow", to: "otel", label: "how it ran" },
+  { from: "ol", to: "djm", label: "HTTPS, no agent" },
+  { from: "otel", to: "agent", label: "OTLP" },
+  { from: "agent", to: "apm" },
+  { from: "djm", to: "apm", dashed: true, fromSide: "bottom", toSide: "top", label: "matched by DAG, run and task IDs" },
+];
+---
+
+<Base
+  title="Lineage events and traces"
+  description="The two kinds of telemetry Airflow sends to Datadog: OpenLineage events, which describe what each pipeline did, and OpenTelemetry traces, which describe how Airflow did the work."
+>
+  <a class="back-link" href={href("concepts/")}>← All concepts</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Concept 4 of 4</Text>
+      <Text as="h1" size="xxl" weight="bold">Lineage events and traces</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        Airflow reports to Datadog through two open standards. OpenLineage describes what each pipeline did; OpenTelemetry describes how Airflow did the work. The two are not the same data: they answer different questions, serve different teams, and arrive in Datadog as separate traces.
+      </Text>
+    </header>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Two standards and two destinations</Text>
+      <Text as="p">Select a box to view what it sends or receives.</Text>
+      <Diagram nodes={nodes} edges={edges} height={380} initial="airflow" />
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">What each standard reports</Text>
+      <dl class="benefits">
+        <dt>OpenLineage: what the pipeline did</dt>
+        <dd>One event when each DAG run, task run or launched job starts and ends, with its status, timing, configuration and datasets. Data Jobs Monitoring presents these by DAG, so its services are pipelines such as <code>contoso_orders</code>, and lineage joins the datasets into a graph.</dd>
+        <dt>OpenTelemetry: how Airflow did the work</dt>
+        <dd>Fine-grained spans inside Airflow's own processes, together with Airflow's metrics. APM presents these by component, so its services are parts of Airflow such as <code>airflow-aca-scheduler</code>.</dd>
+        <dt>How the two are connected</dt>
+        <dd>Datadog does not merge them into one trace. A run in Data Jobs Monitoring and the corresponding spans in APM are matched by DAG ID, run ID and task ID.</dd>
+      </dl>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Which source answers which question</Text>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>What the pipeline owner needs to know</th><th>Data Jobs Monitoring (OpenLineage)</th><th>APM (OpenTelemetry)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Whether the last run succeeded, and which task failed and why</td><td><strong>Yes.</strong> The status of each DAG run and task, the try number, the error message and the stack trace.</td><td><strong>In part.</strong> Errors recorded on the task's span.</td></tr>
+          <tr><td>Whether a run is slower than usual, or late</td><td><strong>Yes.</strong> Run and task duration history for each DAG, and monitors on job status and duration.</td><td><strong>In part.</strong> The timing of the task process only.</td></tr>
+          <tr><td>What a run read and wrote, and what lies downstream of a failed run</td><td><strong>Yes.</strong> Dataset lineage, from operators that report it and from jobs that report their own.</td><td><strong>No.</strong></td></tr>
+          <tr><td>What a task launched (an ACA Job, a Databricks or Spark job), and its outcome</td><td><strong>Yes.</strong> Child job runs nested under the task, when the job reports its parent.</td><td><strong>No,</strong> unless the job is also instrumented with OpenTelemetry.</td></tr>
+          <tr><td>The operator, owner, tags, parameters, schedule and run type</td><td><strong>Yes.</strong> Attached to every run as tags.</td><td><strong>In part.</strong> Some, as span attributes.</td></tr>
+          <tr><td>Where the time went inside a task: queueing, the scheduler or an API call</td><td><strong>No.</strong></td><td><strong>Yes.</strong> Scheduler, worker and triggerer spans, and HTTP client spans. In this demo, each Azure Resource Manager call appears with its latency and status code.</td></tr>
+          <tr><td>Whether Airflow itself is healthy: heartbeats, executor and pool slots, DAG parse time</td><td><strong>No.</strong></td><td><strong>Yes.</strong> Airflow's OpenTelemetry metrics.</td></tr>
+          <tr><td>Task logs alongside the run</td><td>When logs are collected with <code>source:airflow</code>.</td><td>Logs that carry trace IDs, but only through a Datadog Agent or another collector. The managed agent in this demo does not forward logs.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Where to begin</Text>
+      <Text as="p">
+        <Rich text="The team that owns the DAGs begins with Data Jobs Monitoring, because it is organized around DAGs and data. In this demo that is Emily: her investigation of a contoso_orders run that loaded too few rows begins with the row counts that Data Jobs Monitoring records, and then uses Airflow's traces in APM to rule out the platform." />
+      </Text>
+      <div class="callout">
+        <Text as="p" weight="bold">When APM is the right starting point</Text>
+        <Text as="p">
+          APM serves the team that operates Airflow itself, and any investigation in which the cause of a slow task lies inside Airflow or in a service the task calls. A task that waits on a slow Azure API, for example, appears in Data Jobs Monitoring only as a long duration; APM shows which call took the time.
+        </Text>
+      </div>
+      <Text as="p" size="sm" variant="secondary">
+        The settings that turn on each standard are listed on the <a href={href("config/")}>Config</a> page. Emily's investigation is in the <a href={href("personas/emily/")}>data engineer module</a>.
+      </Text>
+    </section>
+
+    <ConceptPager slug="lineage-and-traces" />
+  </article>
+</Base>
