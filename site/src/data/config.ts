@@ -7,6 +7,10 @@ import type { ToolId } from "./tools";
 export interface Snippet {
   label: string;
   code: string;
+  // The same setting made in the Azure portal, as clicks. Names in backticks are set as code.
+  portal?: string[];
+  // The code is the values to enter, so the portal view shows it below the clicks.
+  values?: boolean;
 }
 
 export interface ConfigStep {
@@ -50,10 +54,17 @@ export const configGroups: ConfigGroup[] = [
         snippets: [
           {
             label: "Scheduler environment",
+            values: true,
             code: `OPENLINEAGE__TRANSPORT__TYPE=datadog
 DD_API_KEY=<datadog-api-key>     # from a secret
 DD_SITE=<datadog-site>           # datadoghq.com, us3.datadoghq.com, …
 OPENLINEAGE_NAMESPACE=<env>      # becomes the env tag`,
+            portal: [
+              "Open the scheduler's container app. Under **Settings → Secrets**, add a secret named `dd-api-key` that holds your Datadog API key.",
+              "Select **Application → Revisions and replicas → Create new revision**, then select the scheduler container to edit it.",
+              "Under **Environment variables**, add the variables below. `OPENLINEAGE__TRANSPORT__TYPE`, `DD_SITE` and `OPENLINEAGE_NAMESPACE` use the source **Manual entry**; `DD_API_KEY` uses **Reference a secret**, pointing at `dd-api-key`.",
+              "Select **Save**, then **Create**. The new revision starts with the variables.",
+            ],
           },
         ],
         note: "The Airflow 3 image already includes the OpenLineage provider. On Airflow 2, install apache-airflow-providers-openlineage 2.7.3 or later.",
@@ -76,13 +87,26 @@ OPENLINEAGE_NAMESPACE=<env>      # becomes the env tag`,
   --site <datadog-site> --key <datadog-api-key> \\
   --enable-open-telemetry-traces true \\
   --enable-open-telemetry-metrics true`,
+            portal: [
+              "Open the Container Apps environment and select **Monitoring → OTel endpoints**.",
+              "On the **Datadog** row, select **Update**. Set **Site** to your Datadog site and paste your API key into **Key**.",
+              "Select **Traces** and **Metrics**, then save. **Logs** can be selected too, but in this demo they don't reach Datadog.",
+              "The row's status changes to **Configured**. To change the settings later, leave **Key** blank to keep the existing key.",
+            ],
           },
           {
             label: "Each Airflow app, with its own service name",
+            values: true,
             code: `AIRFLOW__TRACES__OTEL_ON=True
 AIRFLOW__METRICS__OTEL_ON=True
 OTEL_SERVICE_NAME=airflow-scheduler      # per app
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>`,
+            portal: [
+              "Open each Airflow container app in turn: api-server, scheduler, triggerer and dag-processor.",
+              "Select **Application → Revisions and replicas → Create new revision**, then select the app's container.",
+              "Under **Environment variables**, add the four variables below as **Manual entry**, with that app's own `OTEL_SERVICE_NAME`.",
+              "Select **Save**, then **Create**.",
+            ],
           },
         ],
         note: "Don't set any OTEL_EXPORTER_OTLP_* variable: Container Apps injects the agent's endpoint, and stops injecting it if you set even one. The managed agent forwards traces and metrics; logs don't reach Datadog through it.",
@@ -160,12 +184,18 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA <schema>
           },
           {
             label: "Flexible Server parameters",
+            values: true,
             code: `azure.extensions                  = PG_STAT_STATEMENTS
 pg_stat_statements.track          = ALL
 pg_stat_statements.max            = 10000
 pg_stat_statements.track_utility  = off
 track_activity_query_size         = 4096
 track_io_timing                   = on`,
+            portal: [
+              "Open the Azure Database for PostgreSQL flexible server and select **Settings → Server parameters**.",
+              "Search for each parameter below and set its value. For `azure.extensions`, select `PG_STAT_STATEMENTS` in the list.",
+              "Select **Save**. When the portal asks, restart the server, or restart it later from **Overview → Restart**.",
+            ],
           },
           {
             label: "In each database",
