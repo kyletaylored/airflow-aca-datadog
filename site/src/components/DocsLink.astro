@@ -1,0 +1,17 @@
+---
+// A card's link to the product's Datadog documentation: a quiet text link with an external-link icon.
+interface Props {
+  href: string;
+  // The product's name, for the link's accessible name.
+  name: string;
+}
+
+const { href, name } = Astro.props;
+---
+
+<a class="docs-link" href={href} aria-label={`${name} documentation on docs.datadoghq.com`}>
+  Docs
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+    <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+</a>

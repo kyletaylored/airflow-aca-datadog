@@ -3,6 +3,7 @@ import { Text } from "@datadog/druids/typography/Text";
 import Clicks from "../components/Clicks.astro";
 import Rich from "../components/Rich.astro";
 import ToolTag from "../components/ToolTag.astro";
+import DocsLink from "../components/DocsLink.astro";
 import Base from "../layouts/Base.astro";
 import { notNeeded, configGroups, sourceUrl } from "../data/config";
 
@@ -56,7 +57,7 @@ const numbered = configGroups.map((g) => ({ ...g, steps: g.steps.map((s) => ({ .
               <div class="card-header">
                 <span class="config-number">{step.n}</span>
                 {step.tool ? <ToolTag tool={step.tool} size="md" /> : <Text as="span" weight="bold">{step.name}</Text>}
-                <a class="docs-link" href={step.docs}>Datadog docs ↗</a>
+                <DocsLink href={step.docs} name={step.name} />
               </div>
               <div class="card-body">
                 <Text as="p" weight="bold"><Rich text={step.gives} /></Text>

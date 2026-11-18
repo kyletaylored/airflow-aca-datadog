@@ -2,6 +2,7 @@
 import { Text } from "@datadog/druids/typography/Text";
 import Rich from "../components/Rich.astro";
 import ToolTag from "../components/ToolTag.astro";
+import DocsLink from "../components/DocsLink.astro";
 import Base from "../layouts/Base.astro";
 import { personas } from "../data/personas";
 import { tools } from "../data/tools";
@@ -27,9 +28,7 @@ import { href } from "../lib/site";
           <section class="card tool-card" id={tool.id}>
             <div class="card-header">
               <ToolTag tool={tool.id} size="md" />
-              <a class="docs-link" href={tool.docs}>
-                Datadog docs ↗
-              </a>
+              <DocsLink href={tool.docs} name={tool.name} />
             </div>
             <div class="card-body">
               <Text as="h2" size="lg" weight="bold">
