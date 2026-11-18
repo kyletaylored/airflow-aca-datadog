@@ -1,0 +1,180 @@
+---
+// The cross-team scenario: Dave's null_customers incident, seen from John's dashboard. Every
+// signal it names was checked in the demo's Datadog org: the lineage path from the Customer Value
+// dashboard to the orders topic, the customer_id null monitor and its message, and the runs.
+import { Text } from "@datadog/druids/typography/Text";
+import Objectives from "../components/Objectives.astro";
+import Pipeline from "../components/Pipeline.astro";
+import Quiz from "../components/Quiz.tsx";
+import Rich from "../components/Rich.astro";
+import Base from "../layouts/Base.astro";
+import { monitors } from "../data/monitors";
+import { pipelineNodes, type DiagramMark } from "../data/pipeline";
+import type { Question } from "../data/personas";
+import { href } from "../lib/site";
+
+const monitor = monitors.customerNulls;
+
+const marks: DiagramMark[] = [
+  { node: "storefront", kind: "problem", label: "Release drops customer_id" },
+  { node: "staging", kind: "alert", label: "customer_id nulls" },
+  { node: "marts", kind: "impact", label: "customer_value loses orders" },
+  { node: "metabase", kind: "impact", label: "Customer Value dashboard" },
+];
+
+// What happens, in order. The times are illustrative; the monitor's schedule is real.
+const timeline: { when: string; what: string }[] = [
+  { when: "14:00", what: "Dave's team ships a storefront release that stops sending customer_id on approximately 30% of orders. Nothing fails: the storefront, the orders topic and the order processor all handle the orders normally, because customer_id is not a field the order processor requires." },
+  { when: "14:15", what: "The next contoso_orders run loads the orders into raw.orders and staging.orders, then rebuilds the marts. Every task succeeds. check_staging passes, because it checks that orders arrived and that no amount is negative, not that every order has a customer. marts.customer_value now leaves out the orders that lack one." },
+  { when: "14:20", what: "The customer_id null monitor on staging.orders runs, as it does at 5, 20, 35 and 50 minutes past each hour, and alerts: more than 1% of the last hour's orders have no customer." },
+  { when: "Later", what: "On John's Customer Value dashboard, the figures have fallen, but they still look plausible. Whether John has to investigate depends on whether the alert has already reached the right people." },
+];
+
+const slowRoute = [
+  "John asks Priya whether the customer value logic changed. Priya checks the mart SQL and the run: nothing changed, and every task succeeded.",
+  "Priya asks Emily whether the load ran. Emily confirms that it did, with a normal number of rows.",
+  "Someone queries staging.orders and finds orders without a customer_id, then raw.orders, which has the same gap.",
+  "The data team asks Dave whether anything changed in the storefront. It did, an hour earlier.",
+];
+
+const directRoute: { tool: string; what: string }[] = [
+  { tool: "Lineage", what: "Upstream from the Customer Value dashboard, lineage leads to marts.customer_value, the mart_customer_value task, staging.orders.customer_id, raw.orders.customer_id, ingest_orders and finally the orders topic. The path ends where the storefront publishes." },
+  { tool: "The monitor", what: "On that path, the customer_id null monitor on staging.orders is already alerting. Its message names the likely cause, a storefront release that stopped sending the field, and the downstream effect on marts.customer_value." },
+  { tool: "Data Jobs Monitoring", what: "Every run of contoso_orders succeeded, so the pipeline itself is not the cause." },
+  { tool: "Data Streams Monitoring", what: "The pathway from contoso-storefront to order-processor is healthy, so the orders were delivered exactly as they were sent. The problem is in what the storefront sent." },
+];
+
+const questions: Question[] = [
+  {
+    prompt: "John's Customer Value figures have fallen, and every run succeeded. Which signal leads to the cause most directly?",
+    options: [
+      "The run history of contoso_orders in Data Jobs Monitoring",
+      "Upstream lineage from the dashboard, which reaches the alerting customer_id monitor on staging.orders",
+      "The SQL of the mart_customer_value task",
+      "The scheduler's traces in APM",
+    ],
+    answer: 1,
+    why: "Lineage connects the dashboard to every table and task it depends on, and the alerting monitor on that path identifies where the data first went wrong.",
+  },
+  {
+    prompt: "Why does no step of the pipeline fail?",
+    options: [
+      "The order processor retries the faulty orders until they succeed",
+      "The orders are still valid messages that lack one value, so every step processes them normally",
+      "check_staging is turned off during the release",
+      "The release fails and is rolled back automatically",
+    ],
+    answer: 1,
+    why: "customer_id is not a required field, and check_staging does not test for it, so the gap passes through every step and appears only as a change in the figures.",
+  },
+  {
+    prompt: "What does a healthy Data Streams Monitoring pathway rule out?",
+    options: [
+      "A problem in delivering the orders from the storefront to the order processor",
+      "An error in the mart SQL",
+      "A schema change in raw.orders",
+      "A skipped load",
+    ],
+    answer: 0,
+    why: "The pathway covers delivery between the services. If it is healthy, the orders arrived as they were sent, which points to the content the storefront produced.",
+  },
+  {
+    prompt: "Where should the alert for this problem be raised?",
+    options: [
+      "On every downstream table, so that each owner is notified separately",
+      "On the dashboard, where readers notice the problem",
+      "At the first table where the problem can be measured, with a message that names the likely cause and the affected tables",
+      "On the storefront's error rate",
+    ],
+    answer: 2,
+    why: "One alert at the earliest measurable point reaches the team that can fix the cause, and its message tells the downstream teams what is affected without an investigation of their own. The storefront's error rate does not change at all.",
+  },
+];
+---
+
+<Base
+  title="A cross-team incident"
+  description="A storefront release breaks a dashboard three teams downstream. The scenario follows the problem back to its cause, and shows how the answer can reach the right team without a search."
+>
+  <a class="back-link" href={href()}>← All modules</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Scenario</Text>
+      <Text as="h1" size="xxl" weight="bold">A cross-team incident</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        Each module follows one person and the incident in their area. In practice, the person who notices a problem is rarely the person who caused it. This scenario follows one incident across three teams, from the dashboard where it appears to the release that caused it, and compares two ways of finding the cause.
+      </Text>
+    </header>
+
+    <Objectives
+      unit="scenario"
+      items={[
+        "Follow a problem from the dashboard where it appears to the upstream change that caused it.",
+        "Compare searching downstream, one team at a time, with following the signals Datadog already holds.",
+        "Explain where an alert should be raised so that the upstream owner learns of the problem before downstream readers do.",
+      ]}
+    />
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">What happens</Text>
+      <Pipeline height={560} focus={pipelineNodes.map((n) => n.id)} marks={marks} initial="storefront" />
+      <ol class="timeline">
+        {timeline.map((t) => <li><span class="timeline-when">{t.when}</span><span><Rich text={t.what} /></span></li>)}
+      </ol>
+      <Text as="p" size="sm" variant="secondary">
+        In the demo, the null_customers trigger simulates the release by clearing customer_id on 30% of the orders as they load. <a href={href("personas/dave/")}>Dave's module</a> covers the incident from the storefront's side.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Two ways to find the cause</Text>
+      <div class="route-compare">
+        <div class="route">
+          <Text as="h3" size="md" weight="bold">Searching downstream</Text>
+          <Text as="p" size="sm" variant="secondary">Each team rules out its own step, then passes the question upstream.</Text>
+          <ol class="ticks">{slowRoute.map((s) => <li><Rich text={s} /></li>)}</ol>
+          <Text as="p" size="sm"><strong>Result:</strong> four people and several hours, and readers rely on incorrect figures in the meantime.</Text>
+        </div>
+        <div class="route">
+          <Text as="h3" size="md" weight="bold">Following the signals</Text>
+          <Text as="p" size="sm" variant="secondary">The evidence already exists in Datadog; it only has to be read in order.</Text>
+          <ol class="ticks">{directRoute.map((r) => <li><strong>{r.tool}.</strong> <Rich text={r.what} /></li>)}</ol>
+          <Text as="p" size="sm"><strong>Result:</strong> one person, a few minutes, and the owner of the cause identified.</Text>
+        </div>
+      </div>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Delivering the answer directly</Text>
+      <Text as="p">
+        The fastest investigation is the one a downstream team never has to begin. Three choices make that possible:
+      </Text>
+      <dl class="benefits">
+        <dt>Alert at the first measurable point</dt>
+        <dd><Rich text="The gap first becomes measurable in the warehouse, so the monitor watches staging.orders.customer_id. One alert there replaces separate alerts on every table and dashboard built on it." /></dd>
+        <dt>Notify the owner and the teams downstream</dt>
+        <dd>A monitor's notification can mention more than one team or channel. Sending this one to the storefront team and to the analytics and BI teams means that Dave can begin the fix while Priya and John already know which figures to distrust.</dd>
+        <dt>Write the conclusion into the message</dt>
+        <dd>The demo's monitor message states the likely cause and the affected table, so a reader learns the answer from the alert itself:</dd>
+      </dl>
+      <blockquote class="monitor-quote"><Rich text={monitor.message} /></blockquote>
+      <Text as="p" size="sm" variant="secondary">
+        In a real release, the storefront's new version would also appear as a deployment in APM, next to the time the nulls began. The demo simulates the release with a trigger, so the version does not change.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Knowledge check</Text>
+      <Quiz client:only="react" slug="scenario" questions={questions}>
+        <ol slot="fallback" class="ticks">
+          {questions.map((q) => <li>{q.prompt}</li>)}
+        </ol>
+      </Quiz>
+    </section>
+
+    <nav class="pager" aria-label="Other modules">
+      <a href={href("personas/john/")}>← John's module</a>
+      <a href={href("concepts/")}>The concept lessons →</a>
+    </nav>
+  </article>
+</Base>
