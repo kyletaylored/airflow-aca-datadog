@@ -255,7 +255,7 @@ Create these from a table's **Monitors** tab, under Add Monitor:
 
 For a threshold that's normally 0, use Thresholds, not Anomalies: a series that never moves gives anomaly detection nothing to learn.
 
-The scenarios use two more monitor types:
+The scenarios use three more monitor types:
 
 - **Source to Target** (Preview, ask your Datadog contact for access). Add a Row Count check: source `raw.orders` with WHERE `channel <> 'test'` (staging drops test orders), target `staging.orders`, detection Thresholds, format Difference. The difference is target minus source, so a lagging staging comes out negative: alert **below -50**. It read -149 while staging was failing in our test. It catches `breaking_schema`: raw keeps loading while staging is stuck.
 - **Job:** failed runs of Airflow DAGs, which catches `breaking_schema`. Create it in the UI (New Monitor → Job), or with the monitors API as type `data-jobs alert`:
@@ -278,6 +278,8 @@ The scenarios use two more monitor types:
   ```
 
   An empty `jobs_query` covers every Airflow DAG, with one alert group per DAG. Set it to `job_name:contoso_orders` to watch only the pipeline. Watching every DAG paid off in our test: it also caught a real outage, when Azure Resource Manager started returning 403 to the scheduler and every ACA Job DAG failed. `failed_runs` counts *trailing* failed runs, so the monitor recovers as soon as the DAG has a successful run.
+
+- **Metric:** the scheduler container's memory, which catches `memory_pressure` and a scheduler that is too small for its DAGs. With LocalExecutor every task runs in the scheduler's container, so near its limit task processes die without reporting (Airflow logs that the task state changed externally) and are retried minutes later. Query `max(last_10m):max:azure.app_containerapps.working_set_bytes{name:aflo-scheduler,resource_group:<your resource group>} > 3435973837`, critical at 80% of the 4 GiB limit and warning at 2899102925 (2.7 GiB). Normal is 1.8 to 1.95 GB. A metric monitor can't read the limit, so change the thresholds whenever you change the scheduler's size in `infra/main.bicep`. Use `working_set_bytes` rather than `memory_percentage`: in our test, the percentage arrived about 45 minutes late, and the working set about 3 minutes.
 
 **Schema change monitors** and the Schema Changes page support Snowflake, BigQuery, Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and `breaking_schema` show up instead through what they break downstream.
 
@@ -340,6 +342,7 @@ subprocess.run(["airflow", "dags", "trigger", "contoso_orders",
 | `schema_drift` | `raw.orders` gains a `promo_code` column. A normal run drops it again. | The same |
 | `breaking_schema` | After the load, `raw.orders.amount_cents` is renamed to `amount_minor`, so `staging_orders` fails (after its two retries, 5 to 8 minutes) and the marts don't update. The next normal run renames the column back before it loads. | The same |
 | `refund_bug` | The store sales mart counts every Denver order as a refund, so Denver's revenue is negative in `marts.daily_store_sales`. `staging.orders` is untouched, so `check_staging` passes. | The same |
+| `memory_pressure` | The `memory_pressure` task allocates memory until the scheduler's container reaches about 85% of its cgroup limit, holds it for 10 minutes, then releases it. It gives memory back if other tasks push the container past 90%, so no task dies. The run takes about 10 minutes instead of 20 seconds, so trigger it right after a scheduled run, or the next one waits. Without the switch, the task finishes at once. | The same |
 | `interval_minutes` | The window the order timestamps fall in (default 15) | Not used |
 
 In both modes, `staging.orders` carries the nulls, and `marts.customer_value` loses those orders, because it joins on the customer. Scheduled runs use the defaults, so the data recovers on the next scheduled run, about 15 minutes later.
@@ -403,6 +406,18 @@ John doesn't trigger anything. Use him to close each scenario.
 - **In Metabase:** open the same dashboard to see what his readers see. "Pipeline Health" shows each mart's age and the stores with negative revenue.
 - **Bits AI:** ask Bits Chat which dashboards read `marts.daily_store_sales`, and which monitor alerted first.
 
+### 6. A resource limit: the scheduler runs out of memory
+
+This one isn't a person's scenario: it's the platform under all of them. It follows an incident the demo really had, when the scheduler had 2 GiB and every other `contoso_orders` run lost its first `ingest_orders` and `ingest_customers` tries.
+
+- **Trigger:** `memory_pressure`, just after a scheduled run (around :01, :16, :31 or :46).
+- **Wait:** about 5 minutes for the memory alert. It recovers about 10 minutes after the 10-minute hold ends.
+- **Alerts:** the scheduler memory monitor. The data monitors stay quiet: the switch stops short of the limit, so it shows the warning before the incident, not the incident itself.
+- **In Datadog:**
+  1. In the Container Apps metrics for `aflo-scheduler`, the working set climbs to about 85% of the limit, and falls back when the hold ends.
+  2. In Data Jobs Monitoring, the run takes about 10 minutes, and all of it is the `memory_pressure` task.
+- **The fix (not performed):** give the scheduler more memory, run fewer tasks at once, or run tasks in their own containers. The site's [resource limit scenario](https://kyletaylored.com/airflow-aca-datadog/resource-limit/) walks through the real incident.
+
 ### Run sheet
 
 | Order | Trigger | Wait | Show |
@@ -411,7 +426,8 @@ John doesn't trigger anything. Use him to close each scenario.
 | 2 | `refund_bug`, just after a scheduled run | Up to 10 min | Negative-revenue alert. Staging is clean, the mart is not |
 | 3 | `breaking_schema` three times, just after a scheduled run | 5–25 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
 | 4 | Next scheduled run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed runs end. The column is renamed back and staging catches up |
-| 5 | Pause `contoso_orders` | 45 min | Row count, then freshness alerts; pause it before the session and come back to it, then unpause |
+| 5 | `memory_pressure`, just after a scheduled run | About 5 min, then about 20 min to recover | Scheduler memory alert. The data monitors stay quiet |
+| 6 | Pause `contoso_orders` | 45 min | Row count, then freshness alerts; pause it before the session and come back to it, then unpause |
 
 Triggers queue, because `max_active_runs` is 1: a run waits for the one before it, and manual runs go ahead of a scheduled run that's due later.
 

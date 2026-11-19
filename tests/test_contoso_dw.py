@@ -340,6 +340,10 @@ def test_contoso_orders_dag_shape(monkeypatch):
     assert upstream("check_staging") == {"staging_orders", "staging_customers"}
     for mart in ("mart_daily_store_sales", "mart_customer_value", "mart_hourly_order_volume"):
         assert upstream(mart) == {"check_staging"}
+    # The chaos task stands apart, so holding memory never blocks the load.
+    assert upstream("memory_pressure") == set()
+    assert dag.get_task("memory_pressure").downstream_task_ids == set()
+    assert dag.params["memory_pressure"] is False
 
 
 def test_dags_are_skipped_without_the_pipeline(monkeypatch):

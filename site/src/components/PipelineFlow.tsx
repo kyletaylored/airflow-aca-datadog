@@ -38,6 +38,7 @@ const SHORT: Record<string, string> = {
   apm: "APM",
   dsm: "DSM",
   dbm: "DBM",
+  infra: "Infra",
   bits: "Bits AI",
 };
 

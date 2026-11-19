@@ -58,6 +58,16 @@ import { href } from "../lib/site";
 
   <section class="callout-band">
     <div>
+      <Text as="h2" size="lg" weight="bold">A resource limit</Text>
+      <Text as="p" variant="secondary">
+        The container that runs the pipeline runs out of memory, and the data monitors report late loads without the cause. This scenario follows a real incident in the demo from the flapping monitor to the container, and the alert that would have warned first.
+      </Text>
+    </div>
+    <a class="button-link" href={href("resource-limit/")}>Work through the scenario</a>
+  </section>
+
+  <section class="callout-band">
+    <div>
       <Text as="h2" size="lg" weight="bold">Data engineering concepts</Text>
       <Text as="p" variant="secondary">
         The terms observability and data engineering share, the rationale for distributed pipelines, the medallion architecture, the data tool landscape grouped by function, and how lineage events differ from traces.

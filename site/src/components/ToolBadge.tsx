@@ -4,6 +4,7 @@ import { DataObservabilityIcon } from "@datadog/druids/icons/DataObservability";
 import { TraceIcon } from "@datadog/druids/icons/Trace";
 import { DatastreamsMonitoringIcon } from "@datadog/druids/icons/DatastreamsMonitoring";
 import { DatabaseIcon } from "@datadog/druids/icons/Database";
+import { ContainerIcon } from "@datadog/druids/icons/Container";
 import { AiIcon } from "@datadog/druids/icons/Ai";
 import { toolById, type ToolId } from "../data/tools";
 
@@ -13,6 +14,7 @@ export const toolIcons = {
   apm: TraceIcon,
   dsm: DatastreamsMonitoringIcon,
   dbm: DatabaseIcon,
+  infra: ContainerIcon,
   bits: AiIcon,
 } satisfies Record<ToolId, unknown>;
 

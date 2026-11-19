@@ -1,0 +1,174 @@
+---
+// The resource-limit scenario: the scheduler's memory limit, which the demo really hit in
+// November 2026. The timeline, error and figures are from that incident; the monitor and the
+// memory_pressure switch were tested against each other afterwards.
+import { Text } from "@datadog/druids/typography/Text";
+import MonitorCard from "../components/MonitorCard.astro";
+import Objectives from "../components/Objectives.astro";
+import Pipeline from "../components/Pipeline.astro";
+import Quiz from "../components/Quiz.tsx";
+import Rich from "../components/Rich.astro";
+import Base from "../layouts/Base.astro";
+import { pipelineNodes, type DiagramMark } from "../data/pipeline";
+import type { Question } from "../data/personas";
+import { href } from "../lib/site";
+
+const marks: DiagramMark[] = [
+  { node: "ingest", kind: "problem", label: "Task processes killed" },
+  { node: "raw", kind: "alert", label: "Row count flaps" },
+  { node: "metabase", kind: "impact", label: "Figures arrive late" },
+];
+
+// What happened in the demo, in order.
+const timeline: { when: string; what: string }[] = [
+  { when: "Before", what: "The scheduler container has 1 vCPU and 2 GiB of memory. Airflow runs it with LocalExecutor, so every task of every DAG runs as a process inside that one container: contoso_orders every 15 minutes, and three example DAGs every 5." },
+  { when: "Day 1", what: "When the example DAGs and a contoso_orders run overlap, the container's working set reaches about 2.2 GB, at its limit. Task processes die before they can report their result. Airflow logs that the executor finished the task while its recorded state was still running, a task state changed externally, and retries it several minutes later." },
+  { when: "Day 1–3", what: "In every other contoso_orders run, the first try of ingest_orders and ingest_customers dies this way. Every retry succeeds, so every run ends successfully and the job failure monitor stays quiet. The row count monitor on raw.orders flaps between 0 and about 600 rows, and the row gap monitor briefly reports staging.orders more than 50 rows behind." },
+  { when: "Day 3", what: "A monitor audit finds the retries and the error. The container's memory, in Datadog's Azure metrics, shows the cause. The scheduler is resized to 2 vCPU and 4 GiB, and runs return to 15 to 22 seconds with no retries." },
+];
+
+const seen: { who: string; what: string }[] = [
+  { who: "The data monitors", what: "The row count monitor alerts, then recovers, then alerts again. Its message names the volume_drop and skip_load switches and a stalled order stream, none of which is the cause." },
+  { who: "Data Jobs Monitoring", what: "Every run succeeded, but some tasks needed a second try. The failed tries have no stack trace, because the process was killed before it could record one." },
+  { who: "The task logs", what: "Airflow's own log line, that the task state changed externally, says the task ended outside Airflow's control, not why." },
+  { who: "Infrastructure Monitoring", what: "The scheduler container's working set sits at its limit whenever the retries happen. This is the only signal that names the cause." },
+];
+
+const fixes: [string, string][] = [
+  ["Give the container more memory", "What the demo did: 2 vCPU and 4 GiB in infra/main.bicep. It costs approximately $78 a month more on Container Apps consumption pricing."],
+  ["Run fewer tasks at once", "Stagger the schedules, or lower Airflow's parallelism, so the peaks don't overlap. Cheaper, but every new DAG brings the problem back."],
+  ["Run tasks outside the scheduler", "With an executor that gives each task its own container, such as the demo's Container Apps Jobs DAGs, a heavy task can exhaust only its own memory."],
+];
+
+const questions: Question[] = [
+  {
+    prompt: "Every run of contoso_orders succeeded, but the row count monitor flapped. Why did the job failure monitor stay quiet?",
+    options: [
+      "It only watches the example DAGs",
+      "The killed tasks were retried and the retries succeeded, so no run failed",
+      "It was muted during the incident",
+      "Killed tasks are not reported to Data Jobs Monitoring",
+    ],
+    answer: 1,
+    why: "The job failure monitor counts failed runs. Retries hid the failures from it, but not the late loads from the row count monitor.",
+  },
+  {
+    prompt: "A failed try has no stack trace, and Airflow says the task state changed externally. What does that indicate?",
+    options: [
+      "A bug in the task's code",
+      "A schema change in the table the task reads",
+      "The task's process was ended from outside, for example by the kernel at a memory limit",
+      "The database rejected the task's connection",
+    ],
+    answer: 2,
+    why: "Code errors and database errors produce a traceback. A process that is killed cannot record one, so the reason has to come from outside Airflow.",
+  },
+  {
+    prompt: "Why does this matter more with LocalExecutor than with an executor that runs each task in its own container?",
+    options: [
+      "LocalExecutor runs every task inside the scheduler's container, so they share one memory limit",
+      "LocalExecutor doesn't support retries",
+      "LocalExecutor doesn't send OpenLineage events",
+      "LocalExecutor runs tasks one at a time",
+    ],
+    answer: 0,
+    why: "One memory limit is shared by the scheduler and every running task, so one heavy task, or several at once, affects them all.",
+  },
+  {
+    prompt: "Why does the memory monitor alert at 80% of the limit rather than at the limit?",
+    options: [
+      "The metric can't exceed 80%",
+      "So that it warns while tasks still succeed, and arrives before the data monitors notice anything",
+      "Azure reserves the last 20% for the platform",
+      "Metric monitors can't compare with an exact value",
+    ],
+    answer: 1,
+    why: "At the limit, tasks are already dying. An alert below it gives the platform's owner time to act before the data teams see a symptom.",
+  },
+];
+---
+
+<Base
+  title="A resource limit"
+  description="The scheduler container runs out of memory, and the data monitors report the symptom without the cause. The scenario follows a real incident in the demo from the flapping monitor to the container."
+>
+  <a class="back-link" href={href()}>← All modules</a>
+  <article class="concept">
+    <header class="hero hero-compact">
+      <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">Scenario</Text>
+      <Text as="h1" size="xxl" weight="bold">A resource limit</Text>
+      <Text as="p" size="lg" variant="secondary" className="lede">
+        Not every data problem starts in the data. In this scenario, the container that runs the pipeline runs out of memory. The data monitors notice that loads are late, but nothing they measure points to the cause. It happened in this demo, and the scenario follows the incident as it was found.
+      </Text>
+    </header>
+
+    <Objectives
+      unit="scenario"
+      items={[
+        "Recognize the signs of a task killed from outside Airflow: a retry without a stack trace, and a task state that changed externally.",
+        "Explain why every task shares one memory limit under LocalExecutor.",
+        "Use the container's metrics to connect a data symptom to a platform cause, and alert on the cause before the symptom appears.",
+      ]}
+    />
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">What happened</Text>
+      <Pipeline height={560} focus={pipelineNodes.map((n) => n.id)} marks={marks} initial="ingest" />
+      <ol class="timeline">
+        {timeline.map((t) => <li><span class="timeline-when">{t.when}</span><span><Rich text={t.what} /></span></li>)}
+      </ol>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">What each signal shows</Text>
+      <Text as="p">
+        Each signal is accurate, and only one of them names the cause. The data signals describe what the pipeline experienced; the container's memory describes why.
+      </Text>
+      <dl class="benefits">
+        {seen.map((s) => <><dt>{s.who}</dt><dd><Rich text={s.what} /></dd></>)}
+      </dl>
+      <Text as="p" size="sm" variant="secondary">
+        The step from the data signals to the container is the difficult one, because the data tools don't know where a task runs. Two clues lead there: a failed try with no stack trace, and the fact that the failures don't follow any one task, table or chaos switch.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">The alert that names the cause</Text>
+      <Text as="p">
+        A monitor on the container's memory reports the cause directly, and it can do so before any task dies: it alerts at 80% of the limit, while every task still succeeds.
+      </Text>
+      <MonitorCard id="schedulerMemory" />
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">The fix</Text>
+      <dl class="benefits">
+        {fixes.map(([name, what]) => <><dt>{name}</dt><dd><Rich text={what} /></dd></>)}
+      </dl>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Try it</Text>
+      <Text as="p">
+        Trigger contoso_orders with memory_pressure immediately after a scheduled run (at approximately :01, :16, :31 or :46). Its memory_pressure task allocates memory until the scheduler container reaches approximately 85% of its limit, holds it for 10 minutes, then releases it. The memory monitor alerts within about 5 minutes and recovers about 10 minutes after the release.
+      </Text>
+      <Text as="p" size="sm" variant="secondary">
+        The switch stops short of the limit, so no task dies and the data monitors stay quiet: it demonstrates the warning, not the incident. Reaching the limit on purpose could restart the whole scheduler container.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">Knowledge check and sign-off</Text>
+      <Quiz client:only="react" slug="resource-limit" questions={questions} unit="scenario">
+        <ol slot="fallback" class="ticks">
+          {questions.map((q) => <li>{q.prompt}</li>)}
+        </ol>
+      </Quiz>
+    </section>
+
+    <nav class="pager" aria-label="Other modules">
+      <a href={href("scenario/")}>← A cross-team incident</a>
+      <a href={href("concepts/")}>The concept lessons →</a>
+    </nav>
+  </article>
+</Base>
