@@ -6,6 +6,7 @@ export type ToolId =
   | "apm"
   | "dsm"
   | "dbm"
+  | "infra"
   | "bits";
 
 export interface Tool {
@@ -67,6 +68,16 @@ export const tools: Tool[] = [
       "Query metrics, samples and explain plans for every database on the Postgres server, plus each table's schema.",
     inThisDemo: "The same Agent check that feeds Data Observability, with dbm enabled.",
     docs: "https://docs.datadoghq.com/database_monitoring/",
+  },
+  {
+    id: "infra",
+    name: "Infrastructure Monitoring",
+    question: "Does the platform have the resources the work needs?",
+    summary:
+      "CPU, memory, replicas and restarts for every container app, so a slow or failing task can be traced to the container it runs in.",
+    inThisDemo:
+      "Datadog's Azure integration reads each container app's metrics from Azure Monitor, a few minutes behind.",
+    docs: "https://docs.datadoghq.com/integrations/azure_container_apps/",
   },
   {
     id: "bits",

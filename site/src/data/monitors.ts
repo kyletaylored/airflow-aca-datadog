@@ -9,7 +9,7 @@ export interface Monitor {
   id: string;
   name: string;
   product: ToolId;
-  // "Column monitor", "Custom SQL monitor", "Source to Target monitor", "Job monitor".
+  // "Column monitor", "Custom SQL monitor", "Source to Target monitor", "Job monitor", "Metric monitor".
   type: string;
   measure: string;
   detection: "Threshold" | "Anomaly detection";
@@ -206,6 +206,30 @@ export const monitors: Record<string, Monitor> = {
     message:
       "Total revenue in marts.daily_store_sales for the last 7 complete days is outside its expected range, so the store sales reports are wrong. The mart is rebuilt in full on every run, so a change to its logic rewrites every day at once. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
     note: "Completed days don't change, so the total stays almost flat between midnights, and a change to the mart's logic shows up at any hour. An earlier version measured today's revenue, which restarts from 0 at midnight UTC: early in the day its expected range began at 0, and refund_bug's result fell inside it. Anomaly detection requires approximately one week of history, including a weekend, before it can alert.",
+  },
+  schedulerMemory: {
+    id: "schedulerMemory",
+    name: "[contoso_dw] aflo-scheduler memory near its limit",
+    product: "infra",
+    type: "Metric monitor",
+    measure: "Working set, in bytes",
+    detection: "Threshold",
+    target: "The aflo-scheduler container app",
+    purpose: "detecting when the container every task runs in is close to its memory limit",
+    tracks: "the scheduler container's working set, from Azure Monitor, against 80% of its 4 GiB limit",
+    query: [
+      {
+        label: "Query",
+        code: "max(last_10m):max:azure.app_containerapps.working_set_bytes{name:aflo-scheduler,resource_group:rg-ese-tola-airflow-aca-cus} > 3435973837",
+        lang: "formula",
+      },
+    ],
+    alertWhen: "The working set passes 3.2 GiB, 80% of the limit (a warning at 2.7 GiB; about 1.8 GB is normal)",
+    window: "Last 10 minutes",
+    schedule: "Continuously, as the metric arrives (about 3 minutes behind)",
+    message:
+      "aflo-scheduler is using more than 80% of its 4 GiB memory limit (normally 1.8 to 1.95 GB). With LocalExecutor every Airflow task runs in this container, so at the limit task processes are killed without reporting their state: Airflow logs \"task state changed externally\", retries the task minutes later, and loads arrive late. Likely cause in the demo: the memory_pressure chaos switch on contoso_orders. Otherwise, more or heavier tasks than the container's size allows. The threshold is 80% of the size set in infra/main.bicep; change both together.",
+    note: "A metric monitor cannot read the limit, so the threshold is written as a number. Azure also reports memory as a percentage of the limit, but that metric arrives about 45 minutes late, too late to warn before tasks die.",
   },
 };
 
