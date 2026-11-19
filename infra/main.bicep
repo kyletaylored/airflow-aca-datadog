@@ -566,7 +566,9 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'airflow-scheduler'
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow scheduler' ]
-          resources: { cpu: json('1.0'), memory: '2Gi' }
+          // With LocalExecutor every task runs in this container. At 2Gi, the */5 demo DAGs plus a contoso_orders run
+          // pushed it past its memory limit, and task processes died without reporting ("task state changed externally").
+          resources: { cpu: json('2.0'), memory: '4Gi' }
           env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowVersion, otelGitAttributes), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
