@@ -24,6 +24,9 @@ tables. Trigger with chaos params to break something on purpose:
                     staging_orders fails (Job monitor) and the marts go stale
     refund_bug      the store sales mart counts every Denver order as a refund
                     (negative-revenue and revenue anomaly monitors)
+    memory_pressure the memory_pressure task holds memory in the scheduler's
+                    container, up to 85% of its limit, for 10 minutes (the
+                    scheduler memory monitor)
 
 Where the orders come from:
     stream mode    when the order stream is deployed (``CONTOSO_LANDING_ACCOUNT``
@@ -41,8 +44,9 @@ import os
 from datetime import datetime, timedelta
 
 try:  # Airflow 3
-    from airflow.sdk import DAG, Param
+    from airflow.sdk import DAG, Param, task
 except ImportError:  # pragma: no cover - Airflow 2.x (local docker-compose stack)
+    from airflow.decorators import task
     from airflow.models.dag import DAG
     from airflow.models.param import Param
 
@@ -96,6 +100,10 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
             "refund_bug": _chaos(
                 "Refund bug", "The store sales mart counts every Denver order as a refund."
             ),
+            "memory_pressure": _chaos(
+                "Memory pressure",
+                "Hold memory in the scheduler's container, up to 85% of its limit, for 10 minutes.",
+            ),
         },
     ) as dag:
 
@@ -124,6 +132,17 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
             sql_task("mart_customer_value", dw.MART_CUSTOMER_VALUE),
             sql_task("mart_hourly_order_volume", dw.MART_HOURLY_ORDER_VOLUME),
         ]
+
+        # With LocalExecutor this runs in the scheduler's container, next to every other
+        # task. It finishes at once unless the memory_pressure switch is on.
+        @task(task_id="memory_pressure", retries=0)
+        def memory_pressure(**context):
+            if context["params"].get("memory_pressure"):
+                from contoso_dw.memory_pressure import hold_memory
+
+                hold_memory()
+
+        memory_pressure()
 
         ingest_orders >> staging_orders
         ingest_customers >> staging_customers
