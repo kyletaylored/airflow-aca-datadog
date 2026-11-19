@@ -471,7 +471,7 @@ export const personas: Persona[] = [
       {
         kind: "Datadog",
         name: "Data Observability monitors",
-        detail: "Custom SQL rules on the marts, such as a rule against negative revenue, and anomaly detection on daily totals.",
+        detail: "Custom SQL rules on the marts, such as a rule against negative revenue, and anomaly detection on revenue totals.",
       },
     ],
     handoff: {

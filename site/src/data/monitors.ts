@@ -185,27 +185,27 @@ export const monitors: Record<string, Monitor> = {
   },
   revenueAnomaly: {
     id: "revenueAnomaly",
-    name: "[contoso_dw] marts.daily_store_sales revenue today (anomaly)",
+    name: "[contoso_dw] marts.daily_store_sales revenue, last 7 days (anomaly)",
     product: "dataObservability",
     type: "Custom SQL monitor",
-    measure: "Today's revenue",
+    measure: "Revenue over the last 7 complete days",
     detection: "Anomaly detection",
     target: "marts.daily_store_sales",
     purpose: "detecting revenue that is plausible but incorrect",
-    tracks: "today's total revenue across all stores, compared with its usual daily pattern",
+    tracks: "the total revenue across all stores for the last 7 complete days, compared with its usual level",
     query: [
       {
         label: "SQL",
-        code: "SELECT coalesce(sum(revenue_usd), 0) AS dd_value\nFROM marts.daily_store_sales\nWHERE sales_date = (now() AT TIME ZONE 'UTC')::date",
+        code: "SELECT coalesce(sum(revenue_usd), 0) AS dd_value\nFROM marts.daily_store_sales\nWHERE sales_date >= (now() AT TIME ZONE 'UTC')::date - 7\n  AND sales_date < (now() AT TIME ZONE 'UTC')::date",
         lang: "sql",
       },
     ],
-    alertWhen: "Today's revenue moves outside its expected range",
+    alertWhen: "The last 7 days' revenue moves outside its expected range",
     window: "Last 2 hours",
     schedule: "5, 20, 35 and 50 past the hour",
     message:
-      "Today's total revenue in marts.daily_store_sales is outside its expected range, so the store sales reports are wrong. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
-    note: "Anomaly detection requires approximately one week of history, including a weekend, before it can alert.",
+      "Total revenue in marts.daily_store_sales for the last 7 complete days is outside its expected range, so the store sales reports are wrong. The mart is rebuilt in full on every run, so a change to its logic rewrites every day at once. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
+    note: "Completed days don't change, so the total stays almost flat between midnights, and a change to the mart's logic shows up at any hour. An earlier version measured today's revenue, which restarts from 0 at midnight UTC: early in the day its expected range began at 0, and refund_bug's result fell inside it. Anomaly detection requires approximately one week of history, including a weekend, before it can alert.",
   },
 };
 

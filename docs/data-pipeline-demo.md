@@ -251,7 +251,7 @@ Create these from a table's **Monitors** tab, under Add Monitor:
 | `staging.orders` | Custom SQL freshness, in minutes: `SELECT EXTRACT(EPOCH FROM now() - max(ordered_at)) / 60 AS dd_value FROM staging.orders` | above 45 (healthy is about 5 to 25) | a stopped load |
 | `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` | above 0 | `refund_bug` |
 | `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales` | above 45 | a failed or stopped DAG |
-| `marts.daily_store_sales` | Custom SQL: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date = (now() AT TIME ZONE 'UTC')::date` | anomaly detection | `refund_bug`, once it has about a week of history |
+| `marts.daily_store_sales` | Custom SQL, revenue for the last 7 complete days: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date >= (now() AT TIME ZONE 'UTC')::date - 7 AND sales_date < (now() AT TIME ZONE 'UTC')::date`. Don't measure today's revenue: it restarts from 0 at midnight UTC, so early in the day a drop falls inside the expected range | anomaly detection | `refund_bug` at any hour, since the mart is rebuilt in full; once it has about a week of history |
 
 For a threshold that's normally 0, use Thresholds, not Anomalies: a series that never moves gives anomaly detection nothing to learn.
 
