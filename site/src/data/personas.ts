@@ -277,8 +277,8 @@ export const personas: Persona[] = [
       story:
         "raw.orders.amount_cents is renamed to amount_minor. The load still succeeds, but the staging_orders task reads amount_cents. The task fails, retries twice and fails again, so none of the mart tasks run and every report becomes stale.",
       trigger: "breaking_schema",
-      lab: "Trigger contoso_orders with breaking_schema three times in succession, immediately after a scheduled run finishes. Each run fails after its two retries (5 to 8 minutes) and renames the column again for the next run, so staging remains broken across a monitor check while raw continues to load.",
-      wait: "5 to 25 minutes, while the three runs fail in succession",
+      lab: "Trigger contoso_orders with breaking_schema three times in succession, immediately after one of the row gap monitor's checks (5, 20, 35 or 50 minutes past the hour). Each run fails after its two retries (about 4 minutes) and renames the column again for the next run, so staging remains broken through the monitor's next check while raw continues to load. Started just after a scheduled run instead, the three runs end before that check and the scheduled run repairs staging first.",
+      wait: "About 15 minutes: the three runs fail over about 12, then the row gap monitor checks",
     },
     diagram: {
       focus: ["raw", "staging", "marts"],
