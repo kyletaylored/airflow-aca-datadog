@@ -327,7 +327,8 @@ The deploy assigns the Airflow managed identity a role on the resource group, wh
 ├─ site/                    # persona site (Astro + DRUIDS), published to GitHub Pages
 ├─ scripts/                 # postprovision upload to the share, Metabase seed
 ├─ .github/workflows/       # CI, continuous deployment, the site
-└─ tests/                   # offline unit tests (no Azure, no Datadog)
+├─ tests/                   # offline unit tests (no Azure, no Datadog)
+└─ entity.datadog.yaml      # Software Catalog definitions: each service linked to its code
 ```
 
 The `Dockerfile` and `docker-compose.yml` local stack come from the source repo and still run Airflow 2.10 without Datadog.
