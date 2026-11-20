@@ -243,12 +243,15 @@ INGEST_CUSTOMERS = [upsert_customers("0.02")]
 #   null_customers -> 30% of orders have no customer_id
 #   volume_drop    -> 5% of the normal volume
 #   skip_load      -> no orders at all
-#   schema_drift   -> raw.orders gains a promo_code column (dropped again when off)
+#   schema_drift   -> raw.orders gains a promo_code column. It stays until a run sets
+#                     schema_drift to false; a run that leaves it unset doesn't touch it
 #   breaking_schema -> after the load, raw.orders.amount_cents is renamed to
 #                     amount_minor, so staging_orders fails. The next run renames it
 #                     back before it loads.
 ADD_PROMO_CODE = "ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text"
 DROP_PROMO_CODE = "ALTER TABLE raw.orders DROP COLUMN IF EXISTS promo_code"
+# What a run with schema_drift unset runs in their place, so the list keeps its shape.
+KEEP_PROMO_CODE = "SELECT 1"
 PURGE_OLD_ORDERS = "DELETE FROM raw.orders WHERE ordered_at < now() - interval '14 days'"
 BREAK_AMOUNT_COLUMN = "ALTER TABLE raw.orders RENAME COLUMN amount_cents TO amount_minor"
 RESTORE_AMOUNT_COLUMN = """
@@ -265,7 +268,9 @@ $$
 """
 
 INGEST_ORDERS = [
-    "{% if params.schema_drift %}" + ADD_PROMO_CODE + "{% else %}" + DROP_PROMO_CODE + "{% endif %}",
+    "{% if params.schema_drift %}" + ADD_PROMO_CODE
+    + "{% elif params.schema_drift is sameas false %}" + DROP_PROMO_CODE
+    + "{% else %}" + KEEP_PROMO_CODE + "{% endif %}",
     RESTORE_AMOUNT_COLUMN,
     f"""
     INSERT INTO raw.orders

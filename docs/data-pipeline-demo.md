@@ -344,17 +344,17 @@ subprocess.run(["airflow", "dags", "trigger", "contoso_orders",
 | `null_customers` | 30% of the generated orders have no `customer_id` | 30% of the loaded orders lose their `customer_id` |
 | `volume_drop` | Only 5% of the usual orders are generated | Only 5% of each landed batch is loaded; the rest is lost |
 | `skip_load` | No orders are generated | Nothing is loaded; the batches wait, and the next normal run catches up |
-| `schema_drift` | `raw.orders` gains a `promo_code` column. A normal run drops it again. | The same |
+| `schema_drift` | `raw.orders` gains a `promo_code` column, and keeps it until you trigger a run with `{"schema_drift": false}`, which drops it. Scheduled runs leave the param unset, so they don't touch the column. | The same |
 | `breaking_schema` | After the load, `raw.orders.amount_cents` is renamed to `amount_minor`, so `staging_orders` fails (after its two retries, 5 to 8 minutes) and the marts don't update. The next normal run renames the column back before it loads. | The same |
 | `refund_bug` | The store sales mart counts every Denver order as a refund, so Denver's revenue is negative in `marts.daily_store_sales`. `staging.orders` is untouched, so `check_staging` passes. | The same |
 | `memory_pressure` | The `memory_pressure` task allocates memory until the scheduler's container reaches about 85% of its cgroup limit, holds it for 10 minutes, then releases it. It gives memory back if other tasks push the container past 90%, so no task dies. The run takes about 10 minutes instead of 20 seconds, so trigger it right after a scheduled run, or the next one waits. Without the switch, the task finishes at once. | The same |
 | `interval_minutes` | The window the order timestamps fall in (default 15) | Not used |
 
-In both modes, `staging.orders` carries the nulls, and `marts.customer_value` loses those orders, because it joins on the customer. Scheduled runs use the defaults, so the data recovers on the next scheduled run, about 15 minutes later.
+In both modes, `staging.orders` carries the nulls, and `marts.customer_value` loses those orders, because it joins on the customer. Scheduled runs use the defaults, so the data recovers on the next scheduled run, about 15 minutes later. `schema_drift` is the exception: the column stays until you turn the switch off, so Datadog's schema metadata collection has time to see it.
 
 ## Demo scenarios
 
-Each scenario starts in one person's part of the pipeline, from [The story](#the-story). Trigger it with a param from the table above, wait for the alert, then follow the steps in Datadog. None of them asks you to fix anything: the next scheduled run recovers on its own.
+Each scenario starts in one person's part of the pipeline, from [The story](#the-story). Trigger it with a param from the table above, wait for the alert, then follow the steps in Datadog. None of them asks you to fix anything: the next scheduled run recovers on its own, except after `schema_drift`, which you turn off yourself.
 
 The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bits AI docs don't cover Data Observability yet, so try each one before you present it.
 
@@ -362,7 +362,7 @@ The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bit
 
 - **Trigger:** `null_customers`.
 - **Wait:** one run, about 2 minutes, then up to 15 minutes for the monitor's next check, plus a few minutes for its value. The alert clears by itself an hour later, when the run's orders leave its one-hour window.
-- **Alerts:** the null-ratio monitor on `staging.orders.customer_id`, and, from John's side, the monitor for orders missing from `marts.customer_value`. Dave's second monitor, the column contract on `raw.orders`, alerts on `schema_drift` instead: trigger it just after a scheduled run, before the next check, because the next scheduled run drops the column again.
+- **Alerts:** the null-ratio monitor on `staging.orders.customer_id`, and, from John's side, the monitor for orders missing from `marts.customer_value`. Dave's second monitor, the column contract on `raw.orders`, alerts on `schema_drift` instead, at its next check, and stays in alert until you trigger a run with `{"schema_drift": false}`.
 - **In Datadog:**
   1. From the monitor, open the table's lineage and go upstream: `staging.orders` ← `staging_orders` ← `raw.orders` ← `ingest_orders` ← the landing zone ← the `orders` topic.
   2. Downstream, `marts.customer_value` shows as affected. It's missing those orders, because it joins on the customer.
