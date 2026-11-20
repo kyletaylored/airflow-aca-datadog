@@ -230,6 +230,22 @@ def test_schema_drift_off_drops_the_column_on_load():
     assert (dw.DROP_PROMO_CODE, None) in conn.cur.statements
 
 
+@pytest.mark.parametrize(
+    ("chaos", "expected"),
+    [
+        (landing.Chaos(), []),
+        (landing.Chaos(schema_drift=True), ["schema_drift on: added the promo_code column"]),
+        (landing.Chaos(schema_drift=False), ["schema_drift off: dropped the promo_code column"]),
+        (landing.Chaos(breaking_schema=True), ["breaking_schema on: renamed raw.orders.amount_cents"]),
+    ],
+)
+def test_schema_changes_describe_what_the_load_does(chaos, expected):
+    changes = landing.schema_changes(chaos)
+    assert len(changes) == len(expected)
+    for line, start in zip(changes, expected):
+        assert line.startswith(start)
+
+
 def test_chaos_from_params_keeps_schema_drift_unset():
     assert landing.Chaos.from_params({}).schema_drift is None
     assert landing.Chaos.from_params({"schema_drift": False}).schema_drift is False
