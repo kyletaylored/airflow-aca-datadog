@@ -172,8 +172,9 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "No step fails, so the alert originates from the data itself, further down the pipeline in staging.orders.",
-      monitors: ["customerNulls"],
+      intro:
+        "No step fails, so the alert originates from the data itself, further down the pipeline in staging.orders. A second monitor watches the other half of Dave's contract, the fields each order arrives with: a field the storefront adds or renames changes the columns of raw.orders.",
+      monitors: ["customerNulls", "columnContract"],
     },
     investigate: [
       {
@@ -290,8 +291,9 @@ export const personas: Persona[] = [
       ],
     },
     detect: {
-      intro: "Three monitors alert in sequence, each covering a different layer.",
-      monitors: ["jobFailures", "rowGap", "martFreshness"],
+      intro:
+        "Four monitors alert, each covering a different layer. The column contract names the change to raw.orders; the other three show its effect on the run, on staging and on the marts.",
+      monitors: ["columnContract", "jobFailures", "rowGap", "martFreshness"],
     },
     investigate: [
       {
@@ -593,8 +595,8 @@ export const personas: Persona[] = [
     },
     detect: {
       intro:
-        "John does not own a monitor. The alert originates from whichever upstream table failed, and lineage connects it to the dashboards: nulls, freshness, the row gap or negative revenue.",
-      monitors: [],
+        "John's two monitors measure what the dashboards read rather than any one step: whether every mart behind them is current, and whether Customer Value counts every order. Neither says why. The upstream monitor that alerts at the same time does, and lineage connects it to the dashboards.",
+      monitors: ["dashboardFreshness", "customerValueCoverage"],
     },
     investigate: [
       {

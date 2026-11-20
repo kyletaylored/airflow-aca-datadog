@@ -3,6 +3,7 @@
 // lesson's sentence above it: "We've made a <type> for <purpose>, by tracking <tracks>."
 import { Text } from "@datadog/druids/typography/Text";
 import { monitors, withArticle } from "../data/monitors";
+import MonitorChart from "./MonitorChart.astro";
 import Rich from "./Rich.astro";
 import ToolTag from "./ToolTag.astro";
 
@@ -15,7 +16,7 @@ const kind = `${m.type}${m.detection === "Anomaly detection" ? " with anomaly de
 const sentence = `We've made ${withArticle(kind)} for ${m.purpose}, by tracking ${m.tracks}.`;
 ---
 
-<div class="monitor">
+<div class="monitor" id={`monitor-${m.id}`}>
   <Text as="p"><Rich text={sentence} /></Text>
   <article class="monitor-card" aria-label={`Monitor: ${m.name}`}>
     <header class="monitor-head">
@@ -45,6 +46,7 @@ const sentence = `We've made ${withArticle(kind)} for ${m.purpose}, by tracking 
       <dt>Notification</dt>
       <dd class="monitor-message"><Rich text={m.message} /></dd>
     </dl>
+    <MonitorChart id={m.id} />
     {m.note && <p class="monitor-note"><Rich text={m.note} /></p>}
   </article>
 </div>

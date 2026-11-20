@@ -1,0 +1,279 @@
+---
+// A monitor's recorded values, drawn the way its graph reads in Datadog: the
+// series, the threshold and the side of it that alerts, and the scenario that
+// moved it. The marks are an SVG stretched to the plot; the text and dots are
+// HTML placed by percentage, so they stay legible at any width.
+import { monitorSeries, type LineSeries, type RunSeries } from "../data/monitorSeries";
+import { monitors } from "../data/monitors";
+
+interface Props {
+  id: string;
+}
+
+const s = monitorSeries[Astro.props.id];
+const monitor = monitors[Astro.props.id];
+
+const MIN = 60_000;
+const at = (iso: string) => Date.parse(iso);
+const pad = (n: number) => String(n).padStart(2, "0");
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+};
+
+function niceStep(range: number, ticks: number) {
+  const raw = range / ticks;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map((f) => f * mag).find((step) => step >= raw)!;
+}
+
+function format(v: number, series: { unit: string; decimals?: number }) {
+  const text = v.toLocaleString("en-US", { maximumFractionDigits: series.decimals ?? 0 });
+  return `${text}${series.unit}`;
+}
+
+let t0 = 0;
+let t1 = 1;
+let times: number[] = [];
+if (s?.kind === "line") {
+  times = s.times ? s.times.map(at) : s.values.map((_, i) => at(s.start) + i * s.stepMinutes * MIN);
+  t0 = times[0];
+  t1 = times[times.length - 1];
+} else if (s?.kind === "runs") {
+  t0 = at(s.from);
+  t1 = at(s.to);
+}
+const x = (t: number) => ((t - t0) / (t1 - t0)) * 100;
+
+// The x-axis: the coarsest interval that still gives two or more ticks, in UTC,
+// or "Day n" for an illustration, which has no real dates.
+const span = (t1 - t0) / MIN;
+const interval = [15, 30, 60, 120, 180, 360, 720, 1440].find((m) => span / m <= 6) ?? 1440;
+const xTicks: { pct: number; label: string }[] = [];
+for (let t = Math.ceil(t0 / (interval * MIN)) * interval * MIN; t <= t1; t += interval * MIN) {
+  const label = s?.illustrative ? `Day ${Math.round((t - t0) / (1440 * MIN)) + 1}` : clock(t);
+  xTicks.push({ pct: x(t), label });
+}
+const pointLabel = (t: number) =>
+  s?.illustrative ? `Day ${Math.floor((t - t0) / (1440 * MIN)) + 1}, ${clock(t)}` : `${clock(t)} UTC`;
+
+const events = (s?.events ?? []).map((e) => ({
+  left: Math.max(0, x(at(e.from))),
+  width: e.to ? Math.min(100, x(at(e.to))) - Math.max(0, x(at(e.from))) : 0,
+  label: e.label,
+}));
+
+// Line charts: the y-range covers the values, the threshold and any band, from 0
+// unless an expected range is drawn (an anomaly monitor's values sit far from 0).
+let line: LineSeries | undefined;
+let yTicks: { pct: number; label: string }[] = [];
+let y = (_v: number) => 0;
+let pathD = "";
+let areaD = "";
+let bandD = "";
+let zone = { top: 0, height: 0 };
+let thresholdPct = 0;
+let breaches: { left: number; top: number; label: string; peak: boolean; under: boolean }[] = [];
+let points: [number, number, string, string][] = [];
+
+if (s?.kind === "line") {
+  line = s;
+  const all = [...s.values, ...(s.band ? s.band.flat() : [s.threshold])];
+  let lo = Math.min(...all);
+  let hi = Math.max(...all);
+  if (!s.band) lo = Math.min(0, lo);
+  if (hi === lo) hi = lo + 1;
+  // A count (no decimals) gets whole-number ticks.
+  const step = s.decimals ? niceStep(hi - lo, 4) : Math.max(1, Math.round(niceStep(hi - lo, 4)));
+  const yMin = Math.floor((s.band ? lo - step / 2 : lo) / step) * step;
+  const yMax = Math.ceil((hi + (hi - lo) * 0.08) / step) * step;
+  y = (v: number) => (1 - (v - yMin) / (yMax - yMin)) * 100;
+  for (let v = yMin; v <= yMax + step / 1e6; v += step) {
+    // Ticks carry the number only (and %); the chart's title names the unit.
+    yTicks.push({ pct: y(v), label: format(Number(v.toFixed(6)), { unit: s.unit === "%" ? "%" : "", decimals: 2 }) });
+  }
+
+  const xy = s.values.map((v, i) => [x(times[i]), y(v)] as const);
+  pathD = xy.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(2)},${py.toFixed(2)}`).join(" ");
+  const base = y(Math.max(yMin, Math.min(0, yMax)));
+  areaD = `${pathD} L${xy[xy.length - 1][0].toFixed(2)},${base.toFixed(2)} L${xy[0][0].toFixed(2)},${base.toFixed(2)} Z`;
+  if (s.band) {
+    const upper = s.band.map(([, u], i) => `${i ? "L" : "M"}${x(times[i]).toFixed(2)},${y(u).toFixed(2)}`);
+    const lower = s.band.map(([l], i) => `L${x(times[i]).toFixed(2)},${y(l).toFixed(2)}`).reverse();
+    bandD = `${upper.join(" ")} ${lower.join(" ")} Z`;
+  } else {
+    thresholdPct = y(s.threshold);
+    zone = s.alertWhen === "above" ? { top: 0, height: thresholdPct } : { top: thresholdPct, height: 100 - thresholdPct };
+  }
+
+  const outside = (v: number, i: number) =>
+    s.band ? v < s.band[i][0] || v > s.band[i][1] : s.alertWhen === "above" ? v > s.threshold : v < s.threshold;
+  const flagged = s.values.map((v, i) => ({ v, i })).filter(({ v, i }) => outside(v, i));
+  const peak = flagged.reduce<{ v: number; i: number } | undefined>(
+    (best, p) => (!best || Math.abs(p.v - (s.band ? s.band[p.i][0] : s.threshold)) > Math.abs(best.v - (s.band ? s.band[best.i][0] : s.threshold)) ? p : best),
+    undefined,
+  );
+  // A dip below an expected range is labelled under its dot, clear of the line.
+  breaches = flagged.map(({ v, i }) => ({
+    left: xy[i][0],
+    top: xy[i][1],
+    label: format(v, s),
+    peak: i === peak?.i,
+    under: Boolean(s.band && v < s.band[i][0]),
+  }));
+  points = s.values.map((v, i) => [xy[i][0], xy[i][1], pointLabel(times[i]), format(v, s)]);
+}
+
+let runs: RunSeries | undefined;
+// A run that starts within 6% of the one before it takes the other lane, so
+// the two markers don't overlap, even at phone width.
+let lanes: number[] = [];
+if (s?.kind === "runs") {
+  runs = s;
+  for (const [i, r] of s.runs.entries()) {
+    const close = i > 0 && x(at(r.at)) - x(at(s.runs[i - 1].at)) < 6;
+    lanes.push(close ? 1 - lanes[i - 1] : 0);
+  }
+  points = s.runs.map((r) => [x(at(r.at)), 50, pointLabel(at(r.at)), r.failed ? `Failed${r.note ? ` (${r.note})` : ""}` : "Succeeded"]);
+}
+
+const thresholdText = line && !line.band ? `Alerts ${line.alertWhen} ${format(line.threshold, line)}` : "";
+const title = s ? `${s.measure}${s.illustrative ? "" : ", as recorded"}` : "";
+---
+
+{
+  s && (
+    <figure class="mchart" id={`chart-${Astro.props.id}`} aria-label={`Chart: ${monitor?.name ?? s.measure}`}>
+      <div class="mchart-head">
+        <span class="mchart-title">{title}</span>
+        {s.illustrative && <span class="mchart-badge">Illustration</span>}
+      </div>
+      {
+        thresholdText && (
+          <div class="mchart-legend">
+            <span><span class="mchart-key-line mchart-key-threshold" aria-hidden="true" /> <span class="mchart-warn" aria-hidden="true">⚠</span> {thresholdText}</span>
+          </div>
+        )
+      }
+      <div class={`mchart-body${runs ? " mchart-body-runs" : ""}`}>
+        <div class="mchart-y" aria-hidden="true">
+          {yTicks.map((t) => <span style={`top:${t.pct}%`}>{t.label}</span>)}
+        </div>
+        <div class="mchart-plot" tabindex="0" role="img" aria-label={`${s.measure}. ${s.caption}`} data-points={JSON.stringify(points)}>
+          {events.map((e) => (
+            <div class={`mchart-event${e.width ? "" : " mchart-event-instant"}`} style={`left:${e.left}%;width:${e.width}%`}>
+              <span class={e.left + e.width > 60 ? "end" : ""}>{e.label}</span>
+            </div>
+          ))}
+          {runs?.alerts.map((a) => <div class="mchart-alert-span" style={`left:${x(at(a.from))}%;width:${x(at(a.to)) - x(at(a.from))}%`} />)}
+          {line && (
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              {yTicks.map((t) => <line class="mchart-grid" x1="0" x2="100" y1={t.pct} y2={t.pct} vector-effect="non-scaling-stroke" />)}
+              {!line.band && <rect class="mchart-zone" x="0" width="100" y={zone.top} height={zone.height} />}
+              {bandD && <path class="mchart-band" d={bandD} />}
+              {!bandD && <path class="mchart-area" d={areaD} />}
+              <path class="mchart-line" d={pathD} vector-effect="non-scaling-stroke" />
+              {!line.band && <line class="mchart-threshold" x1="0" x2="100" y1={thresholdPct} y2={thresholdPct} vector-effect="non-scaling-stroke" />}
+            </svg>
+          )}
+          {breaches.map((b) => (
+            <span class="mchart-dot" style={`left:${b.left}%;top:${b.top}%`}>
+              {b.peak && <span class={`mchart-dot-label${b.left > 80 ? " left" : ""}${b.top < 20 || b.under ? " under" : ""}`}>{b.label}</span>}
+            </span>
+          ))}
+          {runs?.runs.map((r, i) => (
+            <span class={`mchart-run${r.failed ? " failed" : ""}`} style={`left:${x(at(r.at))}%;top:${lanes[i] ? 70 : 32}%`} aria-hidden="true">
+              {r.failed ? "✕" : "✓"}
+            </span>
+          ))}
+          <div class="mchart-cross" hidden />
+          <div class="mchart-tip" hidden />
+        </div>
+        <div class="mchart-x" aria-hidden="true">
+          {xTicks.map((t) => <span class={t.pct > 94 ? "end" : t.pct < 6 ? "start" : ""} style={`left:${t.pct}%`}>{t.label}</span>)}
+        </div>
+      </div>
+      {
+        bandD && (
+          <div class="mchart-legend">
+            <span><span class="mchart-key-line" aria-hidden="true" /> {s.measure}</span>
+            <span><span class="mchart-swatch mchart-swatch-band" aria-hidden="true" /> Expected range</span>
+            <span><span class="mchart-dot mchart-dot-key" aria-hidden="true" /> Outside the range</span>
+          </div>
+        )
+      }
+      {
+        runs && (
+          <div class="mchart-legend">
+            <span><span class="mchart-run" aria-hidden="true">✓</span> Run succeeded</span>
+            <span><span class="mchart-run failed" aria-hidden="true">✕</span> Run failed</span>
+            <span><span class="mchart-swatch" aria-hidden="true" /> Monitor in alert</span>
+          </div>
+        )
+      }
+      <figcaption>{s.caption}</figcaption>
+      <details class="mchart-table">
+        <summary>Show the values</summary>
+        <table>
+          <thead>
+            <tr><th scope="col">Time</th><th scope="col">{runs ? "Run" : s.measure}</th>{line?.band && <th scope="col">Expected range</th>}</tr>
+          </thead>
+          <tbody>
+            {points.map(([, , when, value], i) => (
+              <tr>
+                <td>{when}</td>
+                <td>{value}</td>
+                {line?.band && <td>{format(line.band[i][0], line)} to {format(line.band[i][1], line)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </figure>
+  )
+}
+
+<script>
+  // Crosshair and tooltip: the nearest point to the pointer, or the arrow keys.
+  for (const plot of document.querySelectorAll<HTMLElement>(".mchart-plot")) {
+    const points: [number, number, string, string][] = JSON.parse(plot.dataset.points ?? "[]");
+    const cross = plot.querySelector<HTMLElement>(".mchart-cross")!;
+    const tip = plot.querySelector<HTMLElement>(".mchart-tip")!;
+    let index = -1;
+    const show = (i: number) => {
+      index = Math.max(0, Math.min(points.length - 1, i));
+      const [px, , when, value] = points[index];
+      cross.style.left = `${px}%`;
+      tip.replaceChildren();
+      const strong = document.createElement("strong");
+      strong.textContent = value;
+      const time = document.createElement("span");
+      time.textContent = when;
+      tip.append(strong, time);
+      tip.style.left = `${px}%`;
+      tip.classList.toggle("flip", px > 70);
+      cross.hidden = tip.hidden = false;
+    };
+    const hide = () => {
+      cross.hidden = tip.hidden = true;
+    };
+    plot.addEventListener("pointermove", (e) => {
+      const box = plot.getBoundingClientRect();
+      const pct = ((e.clientX - box.left) / box.width) * 100;
+      let best = 0;
+      points.forEach(([px], i) => {
+        if (Math.abs(px - pct) < Math.abs(points[best][0] - pct)) best = i;
+      });
+      show(best);
+    });
+    plot.addEventListener("pointerleave", hide);
+    plot.addEventListener("focus", () => show(index < 0 ? points.length - 1 : index));
+    plot.addEventListener("blur", hide);
+    plot.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        show(index + (e.key === "ArrowRight" ? 1 : -1));
+      } else if (e.key === "Escape") hide();
+    });
+  }
+</script>

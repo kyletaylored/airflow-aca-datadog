@@ -236,7 +236,7 @@ azd env get-value METABASE_DB_PASSWORD | gh secret set METABASE_DB_PASSWORD --en
 
 ## Monitors to create
 
-These are the eight monitors the scenarios use, as we set them up and tested them on 2026-11-16. Three things decide whether a monitor works at all:
+These are the twelve monitors the scenarios use, at least two for each person's module, as we set them up and tested them on 2026-11-16 and 2026-11-19. Three things decide whether a monitor works at all:
 
 - **Publish it.** A monitor saved as a draft (Save as draft in the UI, or `"draft_status": "draft"` from the API) is never scheduled on the Agent, so its query never runs and it stays at No Data. Every "No Data" monitor in our deploy was a draft.
 - **Give it a schedule.** Without one, Custom SQL and column monitors run once when they're created. Use the custom cron `5,20,35,50 * * * *`: `contoso_orders` runs every 15 minutes and takes about 2, so each check lands just after a run.
@@ -252,6 +252,9 @@ Create these from a table's **Monitors** tab, under Add Monitor:
 | `marts.daily_store_sales` | Custom SQL: `SELECT count(*) AS dd_value FROM marts.daily_store_sales WHERE revenue_usd < 0` | above 0 | `refund_bug` |
 | `marts.daily_store_sales` | Custom SQL freshness: `SELECT EXTRACT(EPOCH FROM now() - max(updated_at)) / 60 AS dd_value FROM marts.daily_store_sales` | above 45 | a failed or stopped DAG |
 | `marts.daily_store_sales` | Custom SQL, revenue for the last 7 complete days: `SELECT coalesce(sum(revenue_usd), 0) AS dd_value FROM marts.daily_store_sales WHERE sales_date >= (now() AT TIME ZONE 'UTC')::date - 7 AND sales_date < (now() AT TIME ZONE 'UTC')::date`. Don't measure today's revenue: it restarts from 0 at midnight UTC, so early in the day a drop falls inside the expected range | anomaly detection | `refund_bug` at any hour, since the mart is rebuilt in full; once it has about a week of history |
+| `raw.orders` | Custom SQL column contract: the columns `raw.orders` has beyond its 10 agreed ones, plus the agreed ones it no longer has, from `information_schema.columns` (the full query is in `site/src/data/monitors.ts`) | above 0 (healthy is 0) | `schema_drift` (1, a new `promo_code` column) and `breaking_schema` (2, a rename counts as one missing and one new column) |
+| `marts.hourly_order_volume` | Custom SQL, the stalest of the three marts the Metabase dashboards read: `SELECT EXTRACT(EPOCH FROM now() - least((SELECT max(updated_at) FROM marts.daily_store_sales), (SELECT max(updated_at) FROM marts.customer_value), (SELECT max(updated_at) FROM marts.hourly_order_volume))) / 60 AS dd_value` | above 45 (healthy is about 5) | a failed or stopped DAG, from the dashboards' side |
+| `marts.customer_value` | Custom SQL, the share of the last hour's orders with no matching customer, which the mart's join drops: `SELECT coalesce(100.0 * count(*) FILTER (WHERE c.customer_id IS NULL) / nullif(count(*), 0), 0) AS dd_value FROM staging.orders AS o LEFT JOIN staging.customers AS c ON c.customer_id = o.customer_id WHERE o.ordered_at > now() - interval '1 hour'` | above 1 (healthy is 0) | `null_customers`, and orders whose customer never loaded |
 
 For a threshold that's normally 0, use Thresholds, not Anomalies: a series that never moves gives anomaly detection nothing to learn.
 
@@ -281,7 +284,9 @@ The scenarios use three more monitor types:
 
 - **Metric:** the scheduler container's memory, which catches `memory_pressure` and a scheduler that is too small for its DAGs. With LocalExecutor every task runs in the scheduler's container, so near its limit task processes die without reporting (Airflow logs that the task state changed externally) and are retried minutes later. Query `max(last_10m):max:azure.app_containerapps.working_set_bytes{name:aflo-scheduler,resource_group:<your resource group>} > 3435973837`, critical at 80% of the 4 GiB limit and warning at 2899102925 (2.7 GiB). Normal is 1.8 to 1.95 GB. A metric monitor can't read the limit, so change the thresholds whenever you change the scheduler's size in `infra/main.bicep`. Use `working_set_bytes` rather than `memory_percentage`: in our test, the percentage arrived about 45 minutes late, and the working set about 3 minutes.
 
-**Schema change monitors** and the Schema Changes page support Snowflake, BigQuery, Databricks and Redshift, not Postgres, so this demo has none. `schema_drift` and `breaking_schema` show up instead through what they break downstream.
+**Schema change monitors** and the Schema Changes page support Snowflake, BigQuery, Databricks and Redshift, not Postgres, so this demo uses the column contract monitor above instead: a Custom SQL monitor that compares `raw.orders` with its agreed columns in Postgres's own `information_schema`. When you agree a change to the table, change the agreed columns in its SQL too.
+
+**Recreating a monitor.** Datadog refuses to publish a monitor whose definition duplicates an existing one ("Duplicate of an existing monitor_id"), so to give a monitor a clean history, for example after changing what an anomaly monitor measures, delete the old one before you publish its copy.
 
 **How often monitors run.** Check this before a live demo:
 
@@ -357,7 +362,7 @@ The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bit
 
 - **Trigger:** `null_customers`.
 - **Wait:** one run, about 2 minutes, then up to 15 minutes for the monitor's next check, plus a few minutes for its value. The alert clears by itself an hour later, when the run's orders leave its one-hour window.
-- **Alert:** the null-ratio monitor on `staging.orders.customer_id`.
+- **Alerts:** the null-ratio monitor on `staging.orders.customer_id`, and, from John's side, the monitor for orders missing from `marts.customer_value`. Dave's second monitor, the column contract on `raw.orders`, alerts on `schema_drift` instead: trigger it just after a scheduled run, before the next check, because the next scheduled run drops the column again.
 - **In Datadog:**
   1. From the monitor, open the table's lineage and go upstream: `staging.orders` ← `staging_orders` ← `raw.orders` ← `ingest_orders` ← the landing zone ← the `orders` topic.
   2. Downstream, `marts.customer_value` shows as affected. It's missing those orders, because it joins on the customer.
@@ -369,7 +374,7 @@ The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bit
 
 - **Trigger:** `breaking_schema` three times in a row, just after a scheduled run finishes (around :02, :17, :32 or :47). The next scheduled run puts the column back, so one failed run is over before the Source to Target monitor's next check. Three queued runs keep staging failing for about 20 minutes, across a check, while raw keeps loading. Each run breaks the column again after the one before it fails. Don't pause the DAG: Airflow doesn't start any run of a paused DAG, including manual ones.
 - **Wait:** 5 to 8 minutes, while `staging_orders` uses up its two retries. In our tests the attempts ran 2 minutes apart, and once the last retry started 6 minutes late. A run can also wait a few minutes to start if another run is still going.
-- **Alerts:** the Job monitor on `contoso_orders`, on the first failed run, then the Source to Target monitor as `staging.orders` falls behind `raw.orders`. Freshness on `marts.daily_store_sales` only follows if the marts go 45 minutes without a rebuild.
+- **Alerts:** the Job monitor on `contoso_orders`, on the first failed run, then the column contract on `raw.orders` (2 differences: `amount_cents` missing, `amount_minor` new) and the Source to Target monitor as `staging.orders` falls behind `raw.orders`. Freshness on `marts.daily_store_sales` only follows if the marts go 45 minutes without a rebuild.
 - **In Datadog:**
   1. In Data Jobs Monitoring, open the failed run of `contoso_orders`. The `staging_orders` task failed with `column "amount_cents" does not exist`, and the mart tasks never ran.
   2. Column-level lineage from `raw.orders.amount_cents` shows every downstream column that depends on it: what Rajesh should have checked before the rename. It runs through `staging.orders.amount_usd` to `revenue_usd` in `marts.daily_store_sales` and `marts.customer_value`.
@@ -402,6 +407,7 @@ The Bits AI steps use Bits Investigation, Bits Chat and Bits Code. Datadog's Bit
 
 John doesn't trigger anything. Use him to close each scenario.
 
+- **Alerts:** John's two monitors measure what his dashboards read. The dashboard marts freshness monitor alerts when any of the three marts goes 45 minutes without a rebuild (pause `contoso_orders`, as in Emily's scenario). The monitor for orders missing from `marts.customer_value` alerts with `null_customers`, alongside Dave's null-ratio monitor. Neither says why; the upstream monitor that alerts at the same time does.
 - **In Datadog:** from any of the alerts above, open lineage downstream past the `marts` tables to his Metabase dashboards (with `ENABLE_METABASE`). A table marked affected leads to the questions and dashboards showing wrong or stale numbers. For example, `refund_bug` reaches "Revenue by Store" on "Store Sales — Today", and "Stores with Negative Revenue" on "Pipeline Health". The lineage path back up shows whose issue it is.
 - **In Metabase:** open the same dashboard to see what his readers see. "Pipeline Health" shows each mart's age and the stores with negative revenue.
 - **Bits AI:** ask Bits Chat which dashboards read `marts.daily_store_sales`, and which monitor alerted first.
@@ -422,12 +428,12 @@ This one isn't a person's scenario: it's the platform under all of them. It foll
 
 | Order | Trigger | Wait | Show |
 |---|---|---|---|
-| 1 | `null_customers` | Up to 20 min | Nullness alert, then lineage up to the topic and down to `customer_value` |
+| 1 | `null_customers` | Up to 20 min | Nullness and `customer_value` coverage alerts, then lineage up to the topic and down to `customer_value` |
 | 2 | `refund_bug`, just after a scheduled run | Up to 10 min | Negative-revenue alert. Staging is clean, the mart is not |
-| 3 | `breaking_schema` three times, just after a scheduled run | 5–25 min | Failed run in DJM, Job alert, Source to Target gap, column lineage |
+| 3 | `breaking_schema` three times, just after a scheduled run | 5–25 min | Failed run in DJM, Job alert, column contract, Source to Target gap, column lineage |
 | 4 | Next scheduled run | Up to 15 min | Everything recovers. A scheduled run that was waiting starts as soon as the failed runs end. The column is renamed back and staging catches up |
 | 5 | `memory_pressure`, just after a scheduled run | About 5 min, then about 20 min to recover | Scheduler memory alert. The data monitors stay quiet |
-| 6 | Pause `contoso_orders` | 45 min | Row count, then freshness alerts; pause it before the session and come back to it, then unpause |
+| 6 | Pause `contoso_orders` | 45 min | Row count, then freshness alerts, including the dashboard marts; pause it before the session and come back to it, then unpause |
 
 Triggers queue, because `max_active_runs` is 1: a run waits for the one before it, and manual runs go ahead of a scheduled run that's due later.
 

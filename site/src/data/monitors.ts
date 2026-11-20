@@ -1,7 +1,8 @@
 // The monitors the scenarios alert on, as they're defined in the demo's
 // Datadog org (names, types, queries, schedules and messages), and as each was
-// tested against its scenario on 2026-11-16. The queries are in
-// docs/data-pipeline-demo.md, "Monitors to create".
+// tested against its scenario on 2026-11-16 (the column contract, dashboard
+// freshness and customer_value coverage monitors on 2026-11-19). The queries
+// are in docs/data-pipeline-demo.md, "Monitors to create".
 
 import type { ToolId } from "./tools";
 
@@ -206,6 +207,78 @@ export const monitors: Record<string, Monitor> = {
     message:
       "Total revenue in marts.daily_store_sales for the last 7 complete days is outside its expected range, so the store sales reports are wrong. The mart is rebuilt in full on every run, so a change to its logic rewrites every day at once. Likely cause: a bad change to the mart's revenue logic, as the refund_bug chaos switch makes (every Denver order counted as a refund).",
     note: "Completed days don't change, so the total stays almost flat between midnights, and a change to the mart's logic shows up at any hour. An earlier version measured today's revenue, which restarts from 0 at midnight UTC: early in the day its expected range began at 0, and refund_bug's result fell inside it. Anomaly detection requires approximately one week of history, including a weekend, before it can alert.",
+  },
+  columnContract: {
+    id: "columnContract",
+    name: "[contoso_dw] raw.orders column contract",
+    product: "dataObservability",
+    type: "Custom SQL monitor",
+    measure: "Schema differences",
+    detection: "Threshold",
+    target: "raw.orders",
+    purpose: "detecting a change to the columns orders arrive with",
+    tracks: "the columns raw.orders has beyond its 10 agreed ones, plus the agreed ones it no longer has, from PostgreSQL's information_schema",
+    query: [
+      {
+        label: "SQL",
+        code: "SELECT count(*) AS dd_value FROM (\n  (SELECT column_name::text FROM information_schema.columns\n   WHERE table_schema = 'raw' AND table_name = 'orders'\n   EXCEPT SELECT unnest(ARRAY['order_id', 'customer_id', 'store', 'channel', 'items',\n     'amount_cents', 'currency', 'ordered_at', '_batch_id', '_loaded_at']))\n  UNION ALL\n  (SELECT unnest(ARRAY['order_id', 'customer_id', 'store', 'channel', 'items',\n     'amount_cents', 'currency', 'ordered_at', '_batch_id', '_loaded_at'])\n   EXCEPT SELECT column_name::text FROM information_schema.columns\n   WHERE table_schema = 'raw' AND table_name = 'orders')\n) AS differences",
+        lang: "sql",
+      },
+    ],
+    alertWhen: "Any column is added, removed or renamed (normally 0 differences)",
+    window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
+    message:
+      "raw.orders no longer matches its agreed columns: a column was added, removed or renamed (normally 0 differences). A field the storefront starts sending lands here first, and a rename or removal breaks staging_orders on its next run. Likely causes in the demo: the schema_drift chaos switch (a new promo_code column) or the breaking_schema switch (amount_cents renamed). Agree the change with the order processor's owner, then update the agreed columns in this monitor's SQL.",
+    note: "Datadog's schema change monitor covers Snowflake, BigQuery, Databricks and Redshift, but not PostgreSQL, so this one reads PostgreSQL's own catalog of columns instead. An added column, as schema_drift makes, breaks nothing, so no other monitor notices it. A rename counts twice, once for the missing name and once for the new one: under breaking_schema, the job failure monitor reports that staging_orders failed, and this one reports which column changed.",
+  },
+  dashboardFreshness: {
+    id: "dashboardFreshness",
+    name: "[contoso_dw] Metabase dashboard marts freshness",
+    product: "dataObservability",
+    type: "Custom SQL monitor",
+    measure: "Freshness, in minutes",
+    detection: "Threshold",
+    target: "marts.daily_store_sales, marts.customer_value and marts.hourly_order_volume",
+    purpose: "detecting when any dashboard is showing old figures",
+    tracks: "the minutes since the least recently rebuilt of the three marts the Metabase dashboards read",
+    query: [
+      {
+        label: "SQL",
+        code: "SELECT EXTRACT(EPOCH FROM now() - least(\n  (SELECT max(updated_at) FROM marts.daily_store_sales),\n  (SELECT max(updated_at) FROM marts.customer_value),\n  (SELECT max(updated_at) FROM marts.hourly_order_volume)\n)) / 60 AS dd_value",
+        lang: "sql",
+      },
+    ],
+    alertWhen: "More than 45 minutes since the stalest mart was rebuilt (three missed runs; about 5 minutes is normal)",
+    window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
+    message:
+      "At least one of the marts behind the Metabase dashboards (daily_store_sales, customer_value or hourly_order_volume) hasn't been rebuilt in over 45 minutes, so the dashboards show old figures without saying so. Likely causes: contoso_orders paused or failing, for example under the breaking_schema chaos switch. Check the contoso_orders runs in Data Jobs Monitoring to find the task that stopped.",
+    note: "One monitor for all three dashboards' tables, because the question John has to answer is whether any report is out of date. The tables' own monitors and their lineage then say which one, and why.",
+  },
+  customerValueCoverage: {
+    id: "customerValueCoverage",
+    name: "[contoso_dw] orders missing from marts.customer_value",
+    product: "dataObservability",
+    type: "Custom SQL monitor",
+    measure: "Share of orders, in percent",
+    detection: "Threshold",
+    target: "marts.customer_value",
+    purpose: "detecting orders the Customer Value dashboard leaves out",
+    tracks: "the share of the last hour's orders in staging.orders with no matching customer in staging.customers, which the mart's join drops",
+    query: [
+      {
+        label: "SQL",
+        code: "SELECT coalesce(100.0 * count(*) FILTER (WHERE c.customer_id IS NULL)\n  / nullif(count(*), 0), 0) AS dd_value\nFROM staging.orders AS o\nLEFT JOIN staging.customers AS c ON c.customer_id = o.customer_id\nWHERE o.ordered_at > now() - interval '1 hour'",
+        lang: "sql",
+      },
+    ],
+    alertWhen: "More than 1% of the last hour's orders have no matching customer (normally 0%)",
+    window: "Last 2 hours",
+    schedule: "5, 20, 35 and 50 past the hour",
+    message:
+      "More than 1% of the last hour's orders have no matching customer (normally 0%), so marts.customer_value leaves them out and the Customer Value dashboard undercounts orders and revenue. The mart joins orders to customers, so an order without a customer_id, or with one that never loaded, drops out without an error. Likely cause: the null_customers chaos switch, standing in for a storefront release that stopped sending customer_id. If the staging.orders customer_id nulls monitor isn't alerting as well, look at the customers load instead.",
+    note: "It measures what the dashboard loses, not why: an order with no customer_id and an order whose customer never loaded look the same here. The customer_id null monitor on staging.orders tells the two apart.",
   },
   schedulerMemory: {
     id: "schedulerMemory",
