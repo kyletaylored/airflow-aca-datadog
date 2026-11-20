@@ -84,7 +84,7 @@ export const monitors: Record<string, Monitor> = {
     tracks: "the row count of staging.orders against the row count of raw.orders, excluding test orders",
     query: [
       { label: "Source", code: "Row Count of raw.orders WHERE channel <> 'test'", lang: "sql" },
-      { label: "Target", code: "Row Count of staging.orders", lang: "sql" },
+      { label: "Target", code: "Row Count of staging.orders WHERE channel <> 'test'", lang: "sql" },
       { label: "Alert query", code: 'formula("query1").last("75m") < -50', lang: "formula" },
     ],
     alertWhen: "staging.orders falls more than 50 rows behind raw.orders (the difference is target minus source, so it goes negative)",
@@ -92,7 +92,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "staging.orders is more than 50 orders behind raw.orders (test orders excluded). Rows are piling up between the load and staging, so the marts are working from old data. Likely cause: staging_orders failing, as the breaking_schema chaos switch makes it.",
-    note: "When staging is healthy, the two counts match and the difference is 0. While staging_orders was failing during testing, it read -149.",
+    note: "When staging is healthy, the two counts match and the difference is 0. While staging_orders was failing during testing, it read -149. The target has the same filter as the source, though staging already drops test orders: without a WHERE clause, the gap swung by up to 300 rows while staging was healthy, probably because Datadog then reads the target's count from Postgres table statistics, which are estimates. With the filter, both sides are counted the same way.",
   },
   rowCount: {
     id: "rowCount",
@@ -230,7 +230,32 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "raw.orders no longer matches its agreed columns: a column was added, removed or renamed (normally 0 differences). A field the storefront starts sending lands here first, and a rename or removal breaks staging_orders on its next run. Likely causes in the demo: the schema_drift chaos switch (a new promo_code column) or the breaking_schema switch (amount_cents renamed). Agree the change with the order processor's owner, then update the agreed columns in this monitor's SQL.",
-    note: "Datadog's schema change monitor covers Snowflake, BigQuery, Databricks and Redshift, but not PostgreSQL, so this one reads PostgreSQL's own catalog of columns instead. An added column, as schema_drift makes, breaks nothing, so no other monitor notices it. A rename counts twice, once for the missing name and once for the new one: under breaking_schema, the job failure monitor reports that staging_orders failed, and this one reports which column changed.",
+    note: "It reads PostgreSQL's own catalog of columns after every run, so it catches a change that lasts only minutes, which Datadog's schema change monitor can miss between collections of schema metadata. An added column, as schema_drift makes, breaks nothing, so apart from Rajesh's raw schema change monitor, no other monitor notices it. A rename counts twice, once for the missing name and once for the new one: under breaking_schema, the job failure monitor reports that staging_orders failed, and this one reports which column changed.",
+  },
+  schemaChanges: {
+    id: "schemaChanges",
+    name: "[contoso_dw] raw schema changes",
+    product: "dataObservability",
+    type: "Schema change monitor",
+    measure: "Schema changes detected",
+    detection: "Threshold",
+    target: "Every table in contoso_dw.raw",
+    purpose: "detecting a change to the structure of any raw table",
+    tracks: "the tables and columns Datadog finds added, removed, renamed or retyped in contoso_dw's raw schema, each time it collects the warehouse's schema metadata",
+    query: [
+      { label: "Data", code: "@account_entity_id:360dd5c607978958 @database:contoso_dw @schema:raw", lang: "formula" },
+      {
+        label: "Alert query",
+        code: 'schema-changes("@account_entity_id:360dd5c607978958 @database:contoso_dw @schema:raw").rollup("count").last("10m") > 0',
+        lang: "formula",
+      },
+    ],
+    alertWhen: "Datadog detects any change in the last 10 minutes",
+    window: "Last 10 minutes",
+    schedule: "Each time Datadog collects the warehouse's schema metadata",
+    message:
+      "A table or column in contoso_dw's raw schema was added, removed, renamed or retyped. staging_orders and staging_customers read raw by column name, so check they still match. On Postgres a rename shows as one column removed and another added. In the demo, the schema_drift chaos switch causes this.",
+    note: "Datadog's documentation lists schema change detection for Snowflake, BigQuery, Databricks and Redshift, but it detected this PostgreSQL server's changes too. It filters by the catalog's hierarchy, database then schema, so it covers every raw table, not only raw.orders. Datadog compares each collection of schema metadata with the one before, so a change that's undone before the next collection is never seen: schema_drift keeps its column until you turn the switch off for that reason, while breaking_schema's rename may come and go unseen. The column contract on raw.orders checks after every run, so it catches both.",
   },
   dashboardFreshness: {
     id: "dashboardFreshness",

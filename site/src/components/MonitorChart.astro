@@ -128,13 +128,21 @@ let runs: RunSeries | undefined;
 // A run that starts within 6% of the one before it takes the other lane, so
 // the two markers don't overlap, even at phone width.
 let lanes: number[] = [];
+const RUN_LABELS = { item: "Run", ok: "Succeeded", failed: "Failed", okKey: "Run succeeded", failedKey: "Run failed" };
+let runLabels = RUN_LABELS;
 if (s?.kind === "runs") {
   runs = s;
+  runLabels = s.labels ?? RUN_LABELS;
   for (const [i, r] of s.runs.entries()) {
     const close = i > 0 && x(at(r.at)) - x(at(s.runs[i - 1].at)) < 6;
     lanes.push(close ? 1 - lanes[i - 1] : 0);
   }
-  points = s.runs.map((r) => [x(at(r.at)), 50, pointLabel(at(r.at)), r.failed ? `Failed${r.note ? ` (${r.note})` : ""}` : "Succeeded"]);
+  points = s.runs.map((r) => [
+    x(at(r.at)),
+    50,
+    pointLabel(at(r.at)),
+    `${r.failed ? runLabels.failed : runLabels.ok}${r.note ? ` (${r.note})` : ""}`,
+  ]);
 }
 
 const thresholdText = line && !line.band ? `Alerts ${line.alertWhen} ${format(line.threshold, line)}` : "";
@@ -205,9 +213,9 @@ const title = s ? `${s.measure}${s.illustrative ? "" : ", as recorded"}` : "";
       {
         runs && (
           <div class="mchart-legend">
-            <span><span class="mchart-run" aria-hidden="true">✓</span> Run succeeded</span>
-            <span><span class="mchart-run failed" aria-hidden="true">✕</span> Run failed</span>
-            <span><span class="mchart-swatch" aria-hidden="true" /> Monitor in alert</span>
+            <span><span class="mchart-run" aria-hidden="true">✓</span> {runLabels.okKey}</span>
+            <span><span class="mchart-run failed" aria-hidden="true">✕</span> {runLabels.failedKey}</span>
+            {runs.alerts.length > 0 && <span><span class="mchart-swatch" aria-hidden="true" /> Monitor in alert</span>}
           </div>
         )
       }
@@ -216,7 +224,7 @@ const title = s ? `${s.measure}${s.illustrative ? "" : ", as recorded"}` : "";
         <summary>Show the values</summary>
         <table>
           <thead>
-            <tr><th scope="col">Time</th><th scope="col">{runs ? "Run" : s.measure}</th>{line?.band && <th scope="col">Expected range</th>}</tr>
+            <tr><th scope="col">Time</th><th scope="col">{runs ? runLabels.item : s.measure}</th>{line?.band && <th scope="col">Expected range</th>}</tr>
           </thead>
           <tbody>
             {points.map(([, , when, value], i) => (

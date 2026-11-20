@@ -292,8 +292,8 @@ export const personas: Persona[] = [
     },
     detect: {
       intro:
-        "Four monitors alert, each covering a different layer. The column contract names the change to raw.orders; the other three show its effect on the run, on staging and on the marts.",
-      monitors: ["columnContract", "jobFailures", "rowGap", "martFreshness"],
+        "Four monitors cover different layers. The job monitor alerts first, on the failed run, and the row gap and mart freshness monitors show the effect on staging and the marts. The raw schema change monitor reports the rename itself, as long as it is still in place when Datadog next collects the schema.",
+      monitors: ["schemaChanges", "jobFailures", "rowGap", "martFreshness"],
     },
     investigate: [
       {
