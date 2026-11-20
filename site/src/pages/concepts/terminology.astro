@@ -31,12 +31,28 @@ const toObservability: [string, string, string][] = [
   ["The team that owns a table", "Service ownership", "In both fields, an alert is useful only when it reaches the team that can fix the cause."],
 ];
 
+// Airflow's own terms: what each one is, and where it appears in this demo.
+const airflowTerms: [string, string][] = [
+  ["DAG", "The definition of a pipeline, written in a Python file: its tasks and the order they run in, plus the settings for the whole pipeline, such as its schedule, the parameters a run can be started with, and how many runs may be active at once. A DAG does no work itself. In this demo: contoso_orders and contoso_sales."],
+  ["Task", "One step of a DAG, and the unit of work Airflow actually runs: an operator called with its arguments, such as a SQL statement to run or an Azure Container Apps Job to start. Each task has its own retries, timeout and status. In this demo: staging_orders, report_store_sales."],
+  ["DAG run", "One execution of a DAG, for one scheduled interval or one manual trigger. It succeeds only when its tasks do."],
+  ["Task instance", "One task within one DAG run, with its own try number and log. A mapped task has one instance per item: report_store_sales has one for each store, in every run."],
+];
+
+// What the difference between a DAG and a task changes in practice.
+const dagVersusTask: [string, string][] = [
+  ["Where the work runs", "Airflow parses a DAG file to learn the DAG's shape, but it runs tasks. With the LocalExecutor this demo uses, each task instance is a separate process in the scheduler's container, so the number of tasks running at once, not the number of DAGs, sets the container's load."],
+  ["Failure and retries", "A task fails, retries and succeeds on its own. When one store's report fails in contoso_sales, Airflow retries that task alone, and the other stores' tasks carry on. The DAG run fails only if a task runs out of retries."],
+  ["Data Jobs Monitoring", "Shows each DAG's run history, the tasks within each run, and any job a task started, such as an ACA Job. A data jobs monitor can watch a whole DAG or one task."],
+  ["Lineage", "Tasks, not DAGs, report the datasets they read and wrote. The lineage graph draws a DAG as one node that gathers its tasks' datasets, so a DAG whose tasks report none appears with no edges."],
+];
+
 const stepsByStage = Object.fromEntries(stages.map((s) => [s.id, pipelineNodes.filter((n) => n.stage === s.id).map((n) => n.title)]));
 ---
 
 <Base
   title="Observability and data engineering terms"
-  description="The terms observability and data engineering use for the same ideas, mapped in both directions, and the five stages of the data engineering lifecycle."
+  description="The terms observability and data engineering use for the same ideas, mapped in both directions, Airflow's DAGs, tasks and runs, and the five stages of the data engineering lifecycle."
 >
   <a class="back-link" href={href("concepts/")}>← All concepts</a>
   <article class="concept">
@@ -44,7 +60,7 @@ const stepsByStage = Object.fromEntries(stages.map((s) => [s.id, pipelineNodes.f
       <Text as="p" size="sm" variant="tertiary" weight="bold" textTransform="uppercase">{conceptPosition("terminology")}</Text>
       <Text as="h1" size="xxl" weight="bold">Observability and data engineering terms</Text>
       <Text as="p" size="lg" variant="secondary" className="lede">
-        Observability and data engineering describe many of the same ideas in different words. This lesson maps the terms in both directions: for an observability practitioner who is new to data pipelines, and for a data engineer who is new to observability. It then introduces the five stages of the data engineering lifecycle, which the rest of the course uses to place each component.
+        Observability and data engineering describe many of the same ideas in different words. This lesson maps the terms in both directions: for an observability practitioner who is new to data pipelines, and for a data engineer who is new to observability. It then defines Airflow's DAGs, tasks and runs, and introduces the five stages of the data engineering lifecycle, which the rest of the course uses to place each component.
       </Text>
     </header>
 
@@ -78,6 +94,37 @@ const stepsByStage = Object.fromEntries(stages.map((s) => [s.id, pipelineNodes.f
       </div>
       <Text as="p" size="sm" variant="secondary">
         The difference between Data Jobs Monitoring and APM, and between OpenLineage and OpenTelemetry, is covered in <a href={href("concepts/lineage-and-traces/")}>Lineage events and traces</a>.
+      </Text>
+    </section>
+
+    <section class="lesson">
+      <Text as="h2" size="lg" weight="bold">DAGs, tasks and runs</Text>
+      <Text as="p">
+        The tables above compare a DAG to a service and a task to a span. Airflow's own terms are more precise, and the difference between a DAG and a task decides where work runs, what is retried and what reports lineage.
+      </Text>
+      <dl class="benefits">
+        {
+          airflowTerms.map(([term, meaning]) => (
+            <>
+              <dt>{term}</dt>
+              <dd><Rich text={meaning} /></dd>
+            </>
+          ))
+        }
+      </dl>
+      <Text as="p" marginTop="md">The difference between a DAG and a task shows up in four places:</Text>
+      <dl class="benefits">
+        {
+          dagVersusTask.map(([area, effect]) => (
+            <>
+              <dt>{area}</dt>
+              <dd><Rich text={effect} /></dd>
+            </>
+          ))
+        }
+      </dl>
+      <Text as="p" size="sm" variant="secondary">
+        <a href={href("resource-limit/")}>A resource limit</a> follows what happens when the tasks in the scheduler's container use more memory than it has.
       </Text>
     </section>
 
