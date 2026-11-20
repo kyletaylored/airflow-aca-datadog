@@ -383,6 +383,10 @@ var airflowEnv = [
   // Must match on every component: sessions/CSRF and Execution API JWTs.
   { name: 'AIRFLOW__API__SECRET_KEY', secretRef: 'airflow-secret-key' }
   { name: 'AIRFLOW__API_AUTH__JWT_SECRET', secretRef: 'airflow-secret-key' }
+  // The api-server's public URL. Airflow builds each task's log_url from it (falling back to
+  // http://localhost:8080), and OpenLineage sends that to Data Jobs Monitoring for its "Airflow UI" links.
+  // Built from the environment's domain, since the web app's own fqdn would be a circular reference.
+  { name: 'AIRFLOW__API__BASE_URL', value: 'https://${namePrefix}-web.${managedEnvironment.properties.defaultDomain}' }
   // Point the operator at the sample job (overridable per-DAG at trigger time).
   { name: 'AIRFLOW_VAR_AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
   { name: 'AIRFLOW_VAR_ACA_RESOURCE_GROUP', value: resourceGroup().name }
