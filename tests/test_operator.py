@@ -118,3 +118,30 @@ def test_execute_skips_openlineage_parent_when_disabled(monkeypatch):
     monkeypatch.setattr(op, "_wait_for_terminal_state", lambda *a, **k: None)
     op.execute({"ti": object()})
     assert sent["body"] == {}  # still runs the job with its defaults
+
+
+def test_openlineage_facets_report_the_named_datasets(monkeypatch):
+    import sys
+    import types
+
+    def record(**fields):
+        return types.SimpleNamespace(**fields)
+
+    extractors = types.ModuleType("airflow.providers.openlineage.extractors")
+    extractors.OperatorLineage = record
+    events = types.ModuleType("openlineage.client.event_v2")
+    events.InputDataset = events.OutputDataset = record
+    monkeypatch.setitem(sys.modules, "airflow.providers.openlineage.extractors", extractors)
+    monkeypatch.setitem(sys.modules, "openlineage.client.event_v2", events)
+
+    op = _op(job_name="j",
+             openlineage_inputs=[{"namespace": "abfss://c@a.dfs.core.windows.net", "name": "in"}],
+             openlineage_outputs=[{"namespace": "abfss://c@a.dfs.core.windows.net", "name": "out"}])
+    lineage = op.get_openlineage_facets_on_complete(None)
+    assert [(d.namespace, d.name) for d in lineage.inputs] == [
+        ("abfss://c@a.dfs.core.windows.net", "in")]
+    assert [(d.namespace, d.name) for d in lineage.outputs] == [
+        ("abfss://c@a.dfs.core.windows.net", "out")]
+
+    lineage = _op(job_name="j").get_openlineage_facets_on_complete(None)
+    assert (lineage.inputs, lineage.outputs) == ([], [])
