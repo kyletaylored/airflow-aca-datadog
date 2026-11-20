@@ -42,6 +42,9 @@ export interface LineSeries extends Base {
 export interface RunSeries extends Base {
   kind: "runs";
   runs: { at: string; failed: boolean; note?: string }[];
+  // What the markers are, when they aren't DAG runs: the table's column
+  // heading, each marker's readout, and the legend's two keys.
+  labels?: { item: string; ok: string; failed: string; okKey: string; failedKey: string };
   // When the monitor was in alert.
   alerts: { from: string; to: string }[];
   // The chart's time range.
@@ -197,7 +200,31 @@ export const monitorSeries: Record<string, MonitorSeries> = {
       { from: "2026-11-19T23:31:10Z", to: "2026-11-19T23:35:23Z", label: "breaking_schema run" },
     ],
     caption:
-      "schema_drift adds promo_code (1 difference) until the next scheduled run drops it. breaking_schema renames amount_cents to amount_minor, which counts twice: one agreed column missing, one new.",
+      "In this test, schema_drift added promo_code (1 difference) and the next scheduled run dropped it; the switch now keeps the column until a run turns it off. breaking_schema renames amount_cents to amount_minor, which counts twice: one agreed column missing, one new.",
+  },
+  schemaChanges: {
+    kind: "runs",
+    measure: "Schema changes to contoso_dw.raw",
+    unit: "",
+    from: "2026-11-19T22:50:00Z",
+    to: "2026-11-20T00:35:00Z",
+    labels: {
+      item: "Schema change",
+      ok: "Detected",
+      failed: "Not detected",
+      okKey: "Change Datadog detected",
+      failedKey: "Change no collection saw",
+    },
+    runs: [
+      { at: "2026-11-19T23:01:06Z", failed: false, note: "promo_code added by schema_drift; detected 23:03" },
+      { at: "2026-11-19T23:15:00Z", failed: false, note: "promo_code dropped by the next run; detected 00:23" },
+      { at: "2026-11-19T23:35:23Z", failed: true, note: "amount_cents renamed by breaking_schema" },
+      { at: "2026-11-19T23:45:00Z", failed: true, note: "amount_cents renamed back by the next run" },
+    ],
+    alerts: [],
+    events: [],
+    caption:
+      "The changes the chaos switches made to raw.orders during the column contract's test, and which ones Datadog's schema metadata collection detected (times in UTC). The rename lasted 10 minutes and no collection saw it. The monitor was created the next day, so no alert is shown; it alerts for 10 minutes after each detection.",
   },
   dashboardFreshness: {
     kind: "line",
