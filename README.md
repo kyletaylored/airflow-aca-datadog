@@ -141,6 +141,7 @@ Everything else in this repo builds on the two steps. Add any of these only when
 | Azure API spans | A span for each Azure call a task makes, with latency and status | `opentelemetry-instrumentation-requests` (see [Additional instrumentation](#additional-instrumentation)) |
 | ACA Job runs under their task | Each job run nested under the Airflow task that started it in Data Jobs Monitoring, with its datasets in the lineage | This repo's ACA Jobs operator passes the parent IDs; the job sends its own OpenLineage events |
 | Services linked to their container apps | Datadog ties each APM service to its container app | Extend `OTEL_RESOURCE_ATTRIBUTES` as [Datadog's ACA guide](https://docs.datadoghq.com/serverless/azure_container_apps/otel_managed_agent/) describes: `cloud.provider=azure,cloud.platform=azure.container_apps,cloud.resource_id=<app resource id>,cloud.region=<region>,deployment.environment.name=<env>,service.version=<version>`. Keep `deployment.environment=<env>` too: the managed agent sets Datadog's `env` tag only from that key. |
+| Deploys in APM | [Deployment Tracking](https://docs.datadoghq.com/tracing/services/deployment_tracking/): each deploy marked on the service, with errors and latency compared across versions | Give `service.version` a value that changes with each deploy. This repo uses `<airflow version>-<short commit>`, for example `3.4.0-0940cde` |
 
 The `datadog` OpenLineage transport needs `apache-airflow-providers-openlineage` 2.7.3+ (the Airflow 3 image's is newer). On an older provider, replace the first three variables of step 1 with `OPENLINEAGE_URL=https://data-obs-intake.<site>` and `OPENLINEAGE_API_KEY=<key>`.
 
@@ -227,7 +228,7 @@ Only the scheduler needs the first four variables, because tasks run there with 
 | `AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS` | `otel_logging_config.LOGGING_CONFIG` | Airflow apps, when logs are on | Logs. The logging plugin is code on the Azure Files share |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp`, or `none` for a signal that's turned off | Airflow apps | Which signals to send |
 | `OTEL_SERVICE_NAME` | `airflow-aca-<component>` | Each app, with its own value | One service per component |
-| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace` | Each app, with its own value | Ties each service to its container app |
+| `OTEL_RESOURCE_ATTRIBUTES` | `cloud.provider`, `cloud.platform`, `cloud.resource_id`, `cloud.region`, `deployment.environment`, `deployment.environment.name`, `service.version`, `service.namespace`, plus the repository and commit (`vcs.*` and `git.*`) when they're passed | Each app, with its own value | Ties each service to its container app. `service.version` is the Airflow version and the short commit (for example `3.4.0-0940cde`), or just the Airflow version when no commit is passed, so Datadog's [Deployment Tracking](https://docs.datadoghq.com/tracing/services/deployment_tracking/) sees each deploy |
 | `_PIP_ADDITIONAL_REQUIREMENTS` | `opentelemetry-instrumentation-requests==0.66b2` | Scheduler, triggerer | Azure API spans |
 
 The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too, but the job's code doesn't use it.
