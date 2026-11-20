@@ -24,6 +24,9 @@ What Datadog shows (with the Datadog settings on):
       nested under the task that started it (the job reports its own
       OpenLineage run with the task as parent), plus lineage from every
       store's sales dataset into the company total.
+    * The same datasets on the Airflow tasks, so the DAG's node in the lineage
+      graph connects to them. Datadog files the job's own runs under a separate
+      parent job, so their datasets alone don't reach the DAG.
     * A failed store (chaos) as a failed job run, then its successful retry.
 
 Drop this file into ``airflow/dags/`` of either template repo and trigger
@@ -53,6 +56,8 @@ except ModuleNotFoundError:  # repo root on PYTHONPATH (tests / local)
         AzureContainerAppsJobOperator,
     )
 
+from jobs.contoso_store_job import COMPANY_TOTAL_DATASET, DATA_NAMESPACE, store_dataset
+
 # Stock image every task runs on. Overridden per execution by the operator,
 # so the ACA Job's own base image is irrelevant.
 DEMO_IMAGE = "python:3.12-slim"
@@ -73,6 +78,12 @@ DEFAULT_STORES = [
     "Chicago",
     "New York",
 ]
+
+
+def _dataset(name: str) -> dict[str, str]:
+    """An OpenLineage dataset the job writes or reads, for the operator to report."""
+    return {"namespace": DATA_NAMESPACE, "name": name}
+
 
 def _business_date(params: dict, context: dict) -> str:
     """The run's date label. Airflow 3 runs triggered by hand have no logical
@@ -137,8 +148,8 @@ with DAG(
     start = EmptyOperator(task_id="open_for_business")
 
     @task
-    def build_store_runs(params: dict | None = None, **context) -> list[dict[str, str]]:
-        """One env-var bundle per store: the fan-out shards."""
+    def build_store_runs(params: dict | None = None, **context) -> list[dict]:
+        """One operator kwargs bundle per store (its env and the dataset it writes)."""
         p = params or {}
         stores = p.get("stores") or DEFAULT_STORES
         date = _business_date(p, context)
@@ -146,28 +157,34 @@ with DAG(
         job_name = context["var"]["value"].get("aca_job_name", "")
         return [
             {
-                "MODE": "store",
-                "ACA_JOB_NAME": job_name,
-                "STORE_NAME": s,
-                "BUSINESS_DATE": date,
-                "WORK_SECONDS": str(p.get("work_seconds", 4)),
-                "CHAOS": chaos,
-                "CHAOS_STORE": str(p.get("chaos_store", "")),
+                "env_vars": {
+                    "MODE": "store",
+                    "ACA_JOB_NAME": job_name,
+                    "STORE_NAME": s,
+                    "BUSINESS_DATE": date,
+                    "WORK_SECONDS": str(p.get("work_seconds", 4)),
+                    "CHAOS": chaos,
+                    "CHAOS_STORE": str(p.get("chaos_store", "")),
+                },
+                "openlineage_outputs": [_dataset(store_dataset(s))],
             }
             for s in stores
         ]
 
-    @task
-    def build_finalize_env(params: dict | None = None, **context) -> dict[str, str]:
-        """Env for the roll-up job: the list of stores + the date."""
+    @task(multiple_outputs=True)
+    def build_finalize_env(params: dict | None = None, **context) -> dict:
+        """Env for the roll-up job (the list of stores + the date), and the datasets it reads."""
         p = params or {}
         stores = p.get("stores") or DEFAULT_STORES
         date = _business_date(p, context)
         return {
-            "MODE": "finalize",
-            "ACA_JOB_NAME": context["var"]["value"].get("aca_job_name", ""),
-            "STORE_LIST": "|".join(stores),
-            "BUSINESS_DATE": date,
+            "env_vars": {
+                "MODE": "finalize",
+                "ACA_JOB_NAME": context["var"]["value"].get("aca_job_name", ""),
+                "STORE_LIST": "|".join(stores),
+                "BUSINESS_DATE": date,
+            },
+            "openlineage_inputs": [_dataset(store_dataset(s)) for s in stores],
         }
 
     store_runs = build_store_runs()
@@ -175,6 +192,7 @@ with DAG(
     # Fan out: one real ACA Job execution per store, in parallel.
     # deferrable=True frees the Airflow worker slot while each job runs,
     # so fan-out width is bounded by ACA, not by Airflow workers.
+    # expand_kwargs pairs each store's env with its dataset (expand would cross them).
     report_store = AzureContainerAppsJobOperator.partial(
         task_id="report_store_sales",
         subscription_id="{{ var.value.azure_subscription_id }}",
@@ -186,7 +204,7 @@ with DAG(
         deferrable=True,
         poll_interval_seconds=10,
         execution_timeout_seconds=1800,
-    ).expand(env_vars=store_runs)
+    ).expand_kwargs(store_runs)
 
     @task
     def check_every_store_reported(
@@ -203,6 +221,7 @@ with DAG(
     gate = check_every_store_reported(report_store.output)
 
     # Roll up: runs only after every store has reported.
+    finalize_env = build_finalize_env()
     finalize = AzureContainerAppsJobOperator(
         task_id="roll_up_company_total",
         subscription_id="{{ var.value.azure_subscription_id }}",
@@ -211,7 +230,9 @@ with DAG(
         image=DEMO_IMAGE,
         command=RUN_PROGRAM,
         args=[],
-        env_vars=build_finalize_env(),
+        env_vars=finalize_env["env_vars"],
+        openlineage_inputs=finalize_env["openlineage_inputs"],
+        openlineage_outputs=[_dataset(COMPANY_TOTAL_DATASET)],
         deferrable=True,
         poll_interval_seconds=10,
         execution_timeout_seconds=1800,

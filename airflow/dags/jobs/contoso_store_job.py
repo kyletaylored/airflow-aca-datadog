@@ -12,7 +12,8 @@ it: the operator passes OPENLINEAGE_PARENT_ID / OPENLINEAGE_ROOT_PARENT_ID
 that task, like a Databricks run, with the datasets it wrote or read as lineage.
 Events go to Datadog when DD_API_KEY and DD_SITE are set, else to OPENLINEAGE_URL
 (any OpenLineage backend); with neither, nothing is sent. Lineage problems are
-logged and never fail the job.
+logged and never fail the job. The DAG imports the dataset names below, so the
+Airflow tasks report the same datasets and the lineage reaches the DAG too.
 
 The operator renders the command with Jinja, so this file must not contain a
 Jinja opener (an open brace followed by another brace, a percent sign or a hash);
@@ -168,6 +169,9 @@ class Lineage:
 STORE_FIELDS = [("store", "string"), ("business_date", "date"), ("sales_usd", "decimal")]
 
 
+COMPANY_TOTAL_DATASET = "finance/company_daily_total"
+
+
 def store_dataset(store):
     return "stores/" + slug(store) + "/daily_sales"
 
@@ -200,7 +204,7 @@ def run_finalize(date):
         "company_total",
         inputs=[dataset(store_dataset(s)) for s in stores],
         outputs=[dataset(
-            "finance/company_daily_total",
+            COMPANY_TOTAL_DATASET,
             [("business_date", "date"), ("stores", "integer"), ("total_sales_usd", "decimal")],
             rows=1,
         )],

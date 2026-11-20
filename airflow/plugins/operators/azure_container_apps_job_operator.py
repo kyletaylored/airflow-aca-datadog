@@ -63,6 +63,12 @@ class AzureContainerAppsJobOperator(BaseOperator):
     events with them as its parent shows up under this task in Datadog. Turn it
     off with ``pass_openlineage_parent=False``; it is skipped with
     ``job_start_body``, which is sent as-is.
+
+    The task reports no datasets of its own, since it can't see what the job
+    reads or writes. Name them with ``openlineage_inputs`` and
+    ``openlineage_outputs`` (lists of ``{"namespace": ..., "name": ...}`` in
+    OpenLineage naming), and the task's OpenLineage events carry them, so
+    lineage reaches the task and its DAG.
     """
 
     template_fields = (
@@ -79,6 +85,8 @@ class AzureContainerAppsJobOperator(BaseOperator):
         "memory",
         "azure_conn_id",
         "managed_identity_client_id",
+        "openlineage_inputs",
+        "openlineage_outputs",
     )
 
     def __init__(
@@ -102,6 +110,8 @@ class AzureContainerAppsJobOperator(BaseOperator):
         azure_conn_id: str | None = None,
         managed_identity_client_id: str | None = None,
         pass_openlineage_parent: bool = True,
+        openlineage_inputs: list[dict[str, str]] | None = None,
+        openlineage_outputs: list[dict[str, str]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -123,6 +133,24 @@ class AzureContainerAppsJobOperator(BaseOperator):
         self.azure_conn_id = azure_conn_id
         self.managed_identity_client_id = managed_identity_client_id
         self.pass_openlineage_parent = pass_openlineage_parent
+        self.openlineage_inputs = openlineage_inputs
+        self.openlineage_outputs = openlineage_outputs
+
+    def get_openlineage_facets_on_complete(self, task_instance: Any) -> Any:
+        """The datasets named in ``openlineage_inputs`` / ``openlineage_outputs``."""
+        from airflow.providers.openlineage.extractors import OperatorLineage
+        from openlineage.client.event_v2 import InputDataset, OutputDataset
+
+        return OperatorLineage(
+            inputs=[
+                InputDataset(namespace=d["namespace"], name=d["name"])
+                for d in self.openlineage_inputs or []
+            ],
+            outputs=[
+                OutputDataset(namespace=d["namespace"], name=d["name"])
+                for d in self.openlineage_outputs or []
+            ],
+        )
 
     def _auth(self) -> dict[str, Any]:
         """Serializable auth config shared by the operator and its trigger."""
