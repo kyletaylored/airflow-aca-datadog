@@ -81,6 +81,18 @@ def parse_batch(data: bytes) -> list[dict]:
     return orders
 
 
+def schema_changes(chaos: Chaos) -> list[str]:
+    """What load_landed_orders does to raw.orders' columns, one line each for the task log."""
+    changes = []
+    if chaos.schema_drift:
+        changes.append("schema_drift on: added the promo_code column to raw.orders (ADD COLUMN IF NOT EXISTS)")
+    elif chaos.schema_drift is False:
+        changes.append("schema_drift off: dropped the promo_code column from raw.orders (DROP COLUMN IF EXISTS)")
+    if chaos.breaking_schema:
+        changes.append("breaking_schema on: renamed raw.orders.amount_cents to amount_minor after the load")
+    return changes
+
+
 def load_landed_orders(conn, container, chaos: Chaos, rng: random.Random | None = None) -> dict:
     """Load new landing blobs into raw.orders in one transaction. Returns counts."""
     rng = rng or random.Random()

@@ -352,6 +352,8 @@ subprocess.run(["airflow", "dags", "trigger", "contoso_orders",
 | `memory_pressure` | The `memory_pressure` task allocates memory until the scheduler's container reaches about 85% of its cgroup limit, holds it for 10 minutes, then releases it. It gives memory back if other tasks push the container past 90%, so no task dies. The run takes about 10 minutes instead of 20 seconds, so trigger it right after a scheduled run, or the next one waits. Without the switch, the task finishes at once. | The same |
 | `interval_minutes` | The window the order timestamps fall in (default 15) | Not used |
 
+To confirm a column change ran, look at the `ingest_orders` task's log, in Airflow or in Datadog (`@dag_id:contoso_orders @task_id:ingest_orders`). Without the stream, it logs each SQL statement it runs, the `ALTER TABLE` included. With the stream, it logs one line per change, such as `schema_drift on: added the promo_code column to raw.orders`.
+
 In both modes, `staging.orders` carries the nulls, and `marts.customer_value` loses those orders, because it joins on the customer. Scheduled runs use the defaults, so the data recovers on the next scheduled run, about 15 minutes later. `schema_drift` is the exception: the column stays until you turn the switch off, so Datadog's schema metadata collection has time to see it.
 
 ## Demo scenarios

@@ -47,16 +47,18 @@ class LoadLandedOrdersOperator(BaseOperator):
         ).get_container_client(self.landing_container)
         # A raw connection, so no hook reports its own lineage for these statements.
         conn = PostgresHook(postgres_conn_id=self.conn_id).get_conn()
+        chaos = landing.Chaos.from_params(context["params"])
         try:
-            stats = landing.load_landed_orders(
-                conn, container, landing.Chaos.from_params(context["params"])
-            )
+            stats = landing.load_landed_orders(conn, container, chaos)
         finally:
             conn.close()
         self.log.info(
             "Loaded %(orders)s orders from %(blobs)s landing blobs; %(waiting)s still waiting",
             stats,
         )
+        # The load has committed, so these changes to raw.orders' columns are in place.
+        for change in landing.schema_changes(chaos):
+            self.log.info(change)
         self._loaded_orders = stats["orders"]
         return stats
 
