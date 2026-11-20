@@ -7,10 +7,11 @@ export const conceptLessons = [
     title: "Observability and data engineering terms",
     objectives: [
       "Translate common observability terms into their data engineering equivalents, and the reverse.",
+      "Tell a DAG from a task, and say which one Airflow runs, retries and reports lineage for.",
       "Name the five stages of the data engineering lifecycle, and place each component of the demo in one of them.",
     ],
     summary:
-      "The terms both fields use for the same ideas, mapped in both directions, and the five stages of the data engineering lifecycle that the course uses to place each component.",
+      "The terms both fields use for the same ideas, mapped in both directions, Airflow's DAGs, tasks and runs, and the five stages of the data engineering lifecycle that the course uses to place each component.",
   },
   {
     slug: "why-pipelines",
@@ -79,5 +80,6 @@ export const glossary: { term: string; meaning: string }[] = [
   { term: "Data governance", meaning: "The policies and controls for who may access which data, how sensitive fields such as email addresses are protected, how long data is retained, and how ownership and lineage are recorded. In the data engineering lifecycle it applies to every stage rather than being a stage of its own." },
   { term: "OpenLineage", meaning: "An open standard for reporting job runs and the datasets they read and write. Airflow, dbt and Spark emit it, and Data Jobs Monitoring reads it." },
   { term: "OpenTelemetry", meaning: "An open standard for traces, metrics and logs from running software. Airflow emits it for its own processes, and APM reads the traces." },
+  { term: "DAG and task", meaning: "An Airflow DAG defines a pipeline: its schedule, its settings and the order of its tasks. A task is one step of it, and the unit that Airflow runs, retries and reports lineage for." },
   { term: "Trace and span", meaning: "A trace records one request or unit of work; each span within it records one step, such as a function call or an HTTP request, with its start time and duration." },
 ];
