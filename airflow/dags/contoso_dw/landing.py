@@ -8,7 +8,8 @@ had a bug:
     null_customers  30% of the loaded orders lose their customer_id
     volume_drop     only 5% of each batch is loaded (the rest is lost)
     skip_load       nothing is loaded; the blobs wait for the next normal run
-    schema_drift    raw.orders gains a promo_code column
+    schema_drift    raw.orders gains a promo_code column, until a run sets it to
+                    false; when it's unset, the load doesn't touch the column
     breaking_schema after the load, amount_cents is renamed to amount_minor, so
                     staging_orders fails; the next run renames it back first
 
@@ -43,12 +44,15 @@ class Chaos:
     null_customers: bool = False
     volume_drop: bool = False
     skip_load: bool = False
-    schema_drift: bool = False
+    schema_drift: bool | None = None
     breaking_schema: bool = False
 
     @classmethod
     def from_params(cls, params: dict) -> Chaos:
-        return cls(**{f: bool(params.get(f)) for f in cls.__dataclass_fields__})
+        flags = {f: bool(params.get(f)) for f in cls.__dataclass_fields__}
+        # Unset and off mean different things for schema_drift: leave the column, or drop it.
+        drift = params.get("schema_drift")
+        return cls(**{**flags, "schema_drift": None if drift is None else bool(drift)})
 
 
 def landing_dataset(account: str, container: str) -> tuple[str, str]:
@@ -83,7 +87,10 @@ def load_landed_orders(conn, container, chaos: Chaos, rng: random.Random | None 
     stats = {"blobs": 0, "orders": 0, "waiting": 0}
     with conn.cursor() as cur:
         cur.execute(dw.CREATE_INGESTED_FILES)
-        cur.execute(dw.ADD_PROMO_CODE if chaos.schema_drift else dw.DROP_PROMO_CODE)
+        if chaos.schema_drift:
+            cur.execute(dw.ADD_PROMO_CODE)
+        elif chaos.schema_drift is False:
+            cur.execute(dw.DROP_PROMO_CODE)
         cur.execute(dw.RESTORE_AMOUNT_COLUMN)
         cur.execute("SELECT name FROM raw._ingested_files")
         done = {row[0] for row in cur.fetchall()}

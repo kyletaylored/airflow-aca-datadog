@@ -188,7 +188,9 @@ def test_load_only_takes_new_blobs():
     assert len(conn.cur.rows) == 100
     assert {row[-1] for row in conn.cur.rows} == set(sorted(blobs)[1:])
     assert conn.committed
-    assert (dw.DROP_PROMO_CODE, None) in conn.cur.statements
+    # schema_drift unset: the column is left as it is.
+    assert (dw.DROP_PROMO_CODE, None) not in conn.cur.statements
+    assert (dw.ADD_PROMO_CODE, None) not in conn.cur.statements
 
 
 def test_load_ignores_adls_directory_entries():
@@ -220,6 +222,18 @@ def test_schema_drift_on_load():
     conn = _Conn()
     landing.load_landed_orders(conn, _Container({}), landing.Chaos(schema_drift=True))
     assert (dw.ADD_PROMO_CODE, None) in conn.cur.statements
+
+
+def test_schema_drift_off_drops_the_column_on_load():
+    conn = _Conn()
+    landing.load_landed_orders(conn, _Container({}), landing.Chaos(schema_drift=False))
+    assert (dw.DROP_PROMO_CODE, None) in conn.cur.statements
+
+
+def test_chaos_from_params_keeps_schema_drift_unset():
+    assert landing.Chaos.from_params({}).schema_drift is None
+    assert landing.Chaos.from_params({"schema_drift": False}).schema_drift is False
+    assert landing.Chaos.from_params({"schema_drift": True}).schema_drift is True
 
 
 def test_load_restores_the_amount_column_first():

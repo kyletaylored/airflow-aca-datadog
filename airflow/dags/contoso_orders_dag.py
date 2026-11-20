@@ -19,7 +19,9 @@ tables. Trigger with chaos params to break something on purpose:
     null_customers  30% of orders arrive without a customer (null-ratio monitor)
     volume_drop     5% of the usual orders (row-count monitor)
     skip_load       no new orders (freshness monitor)
-    schema_drift    raw.orders gains a promo_code column (schema change)
+    schema_drift    raw.orders gains a promo_code column (schema change). It
+                    stays until a run with schema_drift set to false; runs
+                    that leave it unset, like the scheduled ones, don't touch it
     breaking_schema raw.orders.amount_cents is renamed after the load, so
                     staging_orders fails (Job monitor) and the marts go stale
     refund_bug      the store sales mart counts every Denver order as a refund
@@ -92,7 +94,17 @@ if os.environ.get("AIRFLOW_CONN_CONTOSO_DW"):
             "null_customers": _chaos("Null customers", "30% of orders have no customer_id."),
             "volume_drop": _chaos("Volume drop", "Load only 5% of the usual orders."),
             "skip_load": _chaos("Skip the load", "Load no orders at all."),
-            "schema_drift": _chaos("Schema drift", "Add a promo_code column to raw.orders."),
+            # Unset by default, so scheduled runs leave the column alone and a schema
+            # change lasts long enough for Datadog's schema metadata collection to see it.
+            "schema_drift": Param(
+                default=None,
+                type=["null", "boolean"],
+                title="Schema drift",
+                description=(
+                    "On: add a promo_code column to raw.orders. Off: drop it. "
+                    "Unset (scheduled runs): leave raw.orders as it is."
+                ),
+            ),
             "breaking_schema": _chaos(
                 "Breaking schema change",
                 "Rename raw.orders.amount_cents after the load, so staging_orders fails.",

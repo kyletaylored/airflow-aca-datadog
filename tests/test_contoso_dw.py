@@ -25,7 +25,7 @@ PARAMS = {
     "null_customers": False,
     "volume_drop": False,
     "skip_load": False,
-    "schema_drift": False,
+    "schema_drift": None,
     "breaking_schema": False,
     "refund_bug": False,
 }
@@ -39,7 +39,7 @@ def render(statements: list[str], **chaos) -> list[str]:
 
 def test_ingest_without_chaos():
     alter, restore, insert, cleanup = render(dw.INGEST_ORDERS)
-    assert "DROP COLUMN IF EXISTS promo_code" in alter
+    assert alter == dw.KEEP_PROMO_CODE
     assert "RENAME COLUMN amount_minor TO amount_cents" in restore
     assert cleanup == dw.PURGE_OLD_ORDERS
     assert "WHEN false AND random() < 0.3" in insert
@@ -64,6 +64,11 @@ def test_chaos_switches_change_the_load(chaos, expected):
 def test_schema_drift_adds_the_column():
     alter = render(dw.INGEST_ORDERS, schema_drift=True)[0]
     assert alter.strip() == "ALTER TABLE raw.orders ADD COLUMN IF NOT EXISTS promo_code text"
+
+
+def test_schema_drift_off_drops_the_column():
+    alter = render(dw.INGEST_ORDERS, schema_drift=False)[0]
+    assert alter == dw.DROP_PROMO_CODE
 
 
 def test_breaking_schema_renames_the_column_after_the_load():
