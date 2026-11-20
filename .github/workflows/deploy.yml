@@ -6,6 +6,7 @@ name: Deploy
 #
 #   infra/**, azure.yaml          -> azd provision (Bicep, then the DAG upload hook)
 #   airflow/dags, airflow/plugins -> DAG and plugin upload only
+#   airflow/plugins               -> also restart the Airflow apps that load plugins
 #   services/**                   -> the same upload, then restart the stream services
 on:
   push:
@@ -39,6 +40,7 @@ jobs:
     outputs:
       target: ${{ steps.plan.outputs.target }}
       services_changed: ${{ steps.plan.outputs.services_changed }}
+      plugins_changed: ${{ steps.plan.outputs.plugins_changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,13 +62,19 @@ jobs:
 
           if [ "$EVENT" = "workflow_dispatch" ]; then
             target="$INPUT_TARGET"
+            # No diff to go on, and the plugins may have changed since the last deploy.
+            echo "plugins_changed=true" >> "$GITHUB_OUTPUT"
           elif [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             # New branch or force push: no reliable diff, so deploy everything.
             target=infra
+            echo "plugins_changed=true" >> "$GITHUB_OUTPUT"
           else
             changed="$(git diff --name-only "$BEFORE" "$GITHUB_SHA")"
             if printf '%s\n' "$changed" | grep -qE '^services/'; then
               echo "services_changed=true" >> "$GITHUB_OUTPUT"
+            fi
+            if printf '%s\n' "$changed" | grep -qE '^airflow/plugins/'; then
+              echo "plugins_changed=true" >> "$GITHUB_OUTPUT"
             fi
             if printf '%s\n' "$changed" | grep -qE '^(infra/|azure\.yaml$)'; then
               target=infra
@@ -207,6 +215,23 @@ jobs:
           fi
           echo "Restarting $server for: $pending"
           az postgres flexible-server restart -g "$AZURE_RESOURCE_GROUP" -n "$server" -o none
+
+      - name: Restart the Airflow apps that load plugins
+        # They import the plugins folder (operators, triggers) once, at startup,
+        # so a changed operator isn't seen until they restart, and a DAG that
+        # uses its new arguments fails to import. A provision's new revisions can
+        # start before the upload, so restart after it either way. Tasks running
+        # in the scheduler's container are cut off; deferred ones aren't.
+        if: needs.plan.outputs.plugins_changed == 'true'
+        env:
+          NAME_PREFIX: ${{ vars.NAME_PREFIX || 'aflo' }}
+        run: |
+          for app in dag-processor scheduler triggerer; do
+            name="$NAME_PREFIX-$app"
+            revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
+            az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
+            echo "Restarted $name ($revision)"
+          done
 
       - name: Restart the stream services
         # They read their code from the share only at startup. Setting the
