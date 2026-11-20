@@ -441,8 +441,8 @@ var datadogEnvVars = enableDatadog ? [
 // started by the scheduler, triggers and DAG parsing all report through it).
 // OTEL_RESOURCE_ATTRIBUTES per Datadog's ACA managed-agent guide: cloud.provider,
 // cloud.platform and the app's cloud.resource_id are required, cloud.region is
-// recommended; version comes
-// from service.version. The managed agent's pipeline maps Datadog `env` only
+// recommended; Datadog's `version` comes from service.version (airflowServiceVersion).
+// The managed agent's pipeline maps Datadog `env` only
 // from the older deployment.environment key, so set it alongside .name.
 // `git` is the Source Code Integration attributes (otelGitAttributes), already
 // comma-prefixed or empty.
@@ -473,9 +473,19 @@ var airflowVersion = last(split(airflowImage, ':'))
 // Apps managed agent, Datadog keeps vcs.* only as custom attributes, and without
 // git.* it infers a repository from the service name (here, the wrong one).
 var otelGitAttributes = '${empty(gitRepositoryUrl) ? '' : ',vcs.repository.url.full=${gitRepositoryUrl},git.repository_url=${gitRepositoryUrl}'}${empty(gitCommitSha) ? '' : ',vcs.ref.head.revision=${gitCommitSha},git.commit.sha=${gitCommitSha}'}'
+// Datadog Deployment Tracking: a `version` that changes with each deploy. The
+// Airflow apps report <airflow version>-<short commit> (just the Airflow version
+// without a commit); the dd-trace services report the short commit, set here with
+// their Source Code Integration variables. The deploy workflow rewrites both when
+// it restarts these apps without a provision; keep the formats in step with it.
+var shortCommitSha = take(gitCommitSha, 7)
+var airflowServiceVersion = empty(gitCommitSha) ? airflowVersion : '${airflowVersion}-${shortCommitSha}'
 var ddGitEnv = concat(
   empty(gitRepositoryUrl) ? [] : [ { name: 'DD_GIT_REPOSITORY_URL', value: gitRepositoryUrl } ],
-  empty(gitCommitSha) ? [] : [ { name: 'DD_GIT_COMMIT_SHA', value: gitCommitSha } ]
+  empty(gitCommitSha) ? [] : [
+    { name: 'DD_GIT_COMMIT_SHA', value: gitCommitSha }
+    { name: 'DD_VERSION', value: shortCommitSha }
+  ]
 )
 var appIdPrefix = '${resourceGroup().id}/providers/Microsoft.App/containerApps'
 var executionApiEnv = [
@@ -537,7 +547,7 @@ resource airflowWeb 'Microsoft.App/containerApps@2024-03-01' = {
             'airflow db migrate && (airflow fab-db migrate || true) && (airflow users create --username "${airflowAdminUser}" --password "${airflowAdminPassword}" --firstname Air --lastname Flow --role Admin --email admin@example.com || true) && exec airflow api-server --host 0.0.0.0 --port 8080'
           ]
           resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', location, datadogEnv, airflowVersion, otelGitAttributes))
+          env: concat(airflowEnv, otelServiceEnv(enableDatadog, 'airflow-aca-api-server', '${appIdPrefix}/${namePrefix}-web', location, datadogEnv, airflowServiceVersion, otelGitAttributes))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -573,7 +583,7 @@ resource airflowScheduler 'Microsoft.App/containerApps@2024-03-01' = {
           // With LocalExecutor every task runs in this container. At 2Gi, the */5 demo DAGs plus a contoso_orders run
           // pushed it past its memory limit, and task processes died without reporting ("task state changed externally").
           resources: { cpu: json('2.0'), memory: '4Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowVersion, otelGitAttributes), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-scheduler', '${appIdPrefix}/${namePrefix}-scheduler', location, datadogEnv, airflowServiceVersion, otelGitAttributes), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -607,7 +617,7 @@ resource airflowTriggerer 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow triggerer' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', location, datadogEnv, airflowVersion, otelGitAttributes), httpTracingEnv)
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-triggerer', '${appIdPrefix}/${namePrefix}-triggerer', location, datadogEnv, airflowServiceVersion, otelGitAttributes), httpTracingEnv)
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -641,7 +651,7 @@ resource airflowDagProcessor 'Microsoft.App/containerApps@2024-03-01' = {
           image: airflowImage
           args: [ 'bash', '-c', 'exec airflow dag-processor' ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', location, datadogEnv, airflowVersion, otelGitAttributes))
+          env: concat(airflowEnv, executionApiEnv, otelServiceEnv(enableDatadog, 'airflow-aca-dag-processor', '${appIdPrefix}/${namePrefix}-dag-processor', location, datadogEnv, airflowServiceVersion, otelGitAttributes))
           volumeMounts: sharedVolumeMounts
         }
       ]
@@ -848,7 +858,7 @@ resource landingContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
 var landingConn = 'DefaultEndpointsProtocol=https;AccountName=${landingAccountName};AccountKey=${landingStorage!.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
 // What both services share: dd-trace with DSM, pointed at the Agent's intake,
-// plus the Source Code Integration variables (`git`, from ddGitEnv).
+// plus the Source Code Integration and version variables (`git`, from ddGitEnv).
 func streamServiceEnv(service string, ddEnv string, agentUrl string, git array) array => concat([
   { name: 'PYTHONUNBUFFERED', value: '1' }
   { name: 'PYTHONPATH', value: '/opt/contoso/services' }

@@ -19,7 +19,21 @@ for app in dag-processor scheduler triggerer; do
 done
 ```
 
-The workflow also passes the repository and the merged commit (`GIT_REPOSITORY_URL` and `GIT_COMMIT_SHA`), so Datadog's [Source Code Integration](https://docs.datadoghq.com/source_code/) links each service to its code. The Airflow apps pick up a new commit only on an `infra` deploy, and the order-stream services only when they restart. A DAG upload leaves the running apps on the commit of the last `infra` deploy. To do the same from your own machine, set both before `azd up`:
+The workflow also passes the repository and the merged commit (`GIT_REPOSITORY_URL` and `GIT_COMMIT_SHA`), so Datadog's [Source Code Integration](https://docs.datadoghq.com/source_code/) links each service to its code. The commit also sets each service's `version`, so [Deployment Tracking](https://docs.datadoghq.com/tracing/services/deployment_tracking/) shows each deploy:
+
+| Services | `version` | Set in |
+|---|---|---|
+| `airflow-aca-api-server`, `-scheduler`, `-triggerer`, `-dag-processor` | The Airflow version and the short commit, for example `3.4.0-0940cde` (just `3.4.0` when no commit is passed) | `service.version` in `OTEL_RESOURCE_ATTRIBUTES` |
+| `contoso-storefront`, `order-processor` | The short commit, for example `0940cde` (unset when no commit is passed) | `DD_VERSION` |
+
+The services pick up a new commit and version only when the deploy gives them a new revision:
+
+- **An `infra` deploy** updates all six.
+- **A plugin deploy** updates the DAG processor, scheduler and triggerer: instead of a plain restart, the workflow rewrites the three commit keys of their `OTEL_RESOURCE_ATTRIBUTES` (`service.version`, `vcs.ref.head.revision`, `git.commit.sha`), which restarts them on a new revision. The api-server isn't restarted, so it keeps the version of the last `infra` deploy.
+- **A change to `services/**`** updates the order-stream services, which the workflow restarts by setting `DD_GIT_COMMIT_SHA` and `DD_VERSION`.
+- **A DAG-only upload** restarts nothing, so every service keeps the commit and version of its last restart, and Deployment Tracking doesn't show it.
+
+To do the same from your own machine, set both before `azd up`:
 
 ```bash
 azd env set GIT_REPOSITORY_URL "github.com/<owner>/<repo>"

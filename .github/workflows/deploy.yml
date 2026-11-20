@@ -222,21 +222,52 @@ jobs:
         # uses its new arguments fails to import. A provision's new revisions can
         # start before the upload, so restart after it either way. Tasks running
         # in the scheduler's container are cut off; deferred ones aren't.
+        # Setting the commit and version (Datadog Source Code Integration and
+        # Deployment Tracking) makes a new revision, which restarts them; if the
+        # provision already set them, restart instead. Only the three keys that
+        # follow the commit are rewritten, in place, so the rest of the value stays
+        # as the Bicep set it and a later provision of this commit changes nothing.
         if: needs.plan.outputs.plugins_changed == 'true'
         env:
           NAME_PREFIX: ${{ vars.NAME_PREFIX || 'aflo' }}
         run: |
           for app in dag-processor scheduler triggerer; do
             name="$NAME_PREFIX-$app"
-            revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
-            az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
-            echo "Restarted $name ($revision)"
+            app_json="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" -o json)"
+            current="$(jq -r '.properties.template.containers[0].env[] | select(.name == "OTEL_RESOURCE_ATTRIBUTES") | .value' <<<"$app_json")"
+            desired="$current"
+            if [ -n "$current" ]; then
+              # service.version is <airflow version>-<short commit>, as in the
+              # Bicep's airflowServiceVersion; the Airflow version is the image tag.
+              image="$(jq -r '.properties.template.containers[0].image' <<<"$app_json")"
+              desired="$(awk -v attrs="$current" -v version="${image##*:}-${GITHUB_SHA:0:7}" -v sha="$GITHUB_SHA" 'BEGIN {
+                set["service.version"] = version; set["vcs.ref.head.revision"] = sha; set["git.commit.sha"] = sha
+                n = split(attrs, pairs, ",")
+                for (i = 1; i <= n; i++) {
+                  key = substr(pairs[i], 1, index(pairs[i], "=") - 1)
+                  if (key in set) { pairs[i] = key "=" set[key]; delete set[key] }
+                  out = out (i > 1 ? "," : "") pairs[i]
+                }
+                for (key in set) out = out "," key "=" set[key]
+                print out
+              }')"
+            fi
+            if [ "$current" != "$desired" ]; then
+              az containerapp update -g "$AZURE_RESOURCE_GROUP" -n "$name" --set-env-vars "OTEL_RESOURCE_ATTRIBUTES=$desired" -o none
+              echo "Restarted $name on a new revision for $GITHUB_SHA"
+            else
+              revision="$(jq -r '.properties.latestRevisionName' <<<"$app_json")"
+              az containerapp revision restart -g "$AZURE_RESOURCE_GROUP" -n "$name" --revision "$revision" -o none
+              echo "Restarted $name ($revision)"
+            fi
           done
 
       - name: Restart the stream services
         # They read their code from the share only at startup. Setting the
-        # commit (Datadog Source Code Integration) makes a new revision, which
-        # restarts them; if the provision already set it, restart instead.
+        # commit and version (Datadog Source Code Integration and Deployment
+        # Tracking; DD_VERSION is the short commit, as in the Bicep's ddGitEnv)
+        # makes a new revision, which restarts them; if the provision already set
+        # them, restart instead.
         if: needs.plan.outputs.services_changed == 'true' && vars.ENABLE_ORDER_STREAM == 'true'
         env:
           NAME_PREFIX: ${{ vars.NAME_PREFIX || 'aflo' }}
@@ -246,7 +277,7 @@ jobs:
             current="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" \
               --query "properties.template.containers[0].env[?name=='DD_GIT_COMMIT_SHA'].value | [0]" -o tsv)"
             if [ "$current" != "$GITHUB_SHA" ]; then
-              az containerapp update -g "$AZURE_RESOURCE_GROUP" -n "$name" --set-env-vars "DD_GIT_COMMIT_SHA=$GITHUB_SHA" -o none
+              az containerapp update -g "$AZURE_RESOURCE_GROUP" -n "$name" --set-env-vars "DD_GIT_COMMIT_SHA=$GITHUB_SHA" "DD_VERSION=${GITHUB_SHA:0:7}" -o none
               echo "Restarted $name on a new revision for $GITHUB_SHA"
             else
               revision="$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$name" --query properties.latestRevisionName -o tsv)"
