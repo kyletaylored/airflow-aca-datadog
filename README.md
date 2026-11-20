@@ -206,10 +206,11 @@ Data Jobs Monitoring doesn't use the OTel agent. Each OpenLineage client posts s
 | `DD_API_KEY` | `dd-api-key` secret | Airflow apps, sample ACA Job | Container app or job secret, referenced by the env var (`secretRef`) |
 | `DD_SITE` | `$DD_SITE` | Airflow apps, sample ACA Job | Container app env var, job template env |
 | `OPENLINEAGE_NAMESPACE` | `$DD_ENV` (becomes the `env` tag) | Airflow apps, sample ACA Job | Container app env var, job template env |
+| `AIRFLOW__API__BASE_URL` | `https://<prefix>-web.<environment default domain>` (the api-server's public URL) | Airflow apps | Container app env var |
 | `OPENLINEAGE_PARENT_ID` | The task's run: `{namespace}/{dag_id}.{task_id}/{run_id}` | Each ACA Job execution | Job execution override, added by the operator |
 | `OPENLINEAGE_ROOT_PARENT_ID` | The DAG run: `{namespace}/{dag_id}/{run_id}` | Each ACA Job execution | Job execution override, added by the operator |
 
-Only the scheduler needs the first four variables, because tasks run there with `LocalExecutor`. The other apps also get them because all four apps share one env list. The ACA Job doesn't read `OPENLINEAGE__TRANSPORT__TYPE`: the demo job's own code sends the events. Pass `pass_openlineage_parent=False` to the operator to stop sending the two parent IDs.
+Only the scheduler needs the first four variables, because tasks run there with `LocalExecutor`. The other apps also get them because all four apps share one env list. `AIRFLOW__API__BASE_URL` is Airflow's `[api] base_url`. Airflow builds each task event's `log_url` from it, and Data Jobs Monitoring's **Airflow UI** links use that host. Without it they point at `http://localhost:8080`. The ACA Job doesn't read `OPENLINEAGE__TRANSPORT__TYPE`: the demo job's own code sends the events. Pass `pass_openlineage_parent=False` to the operator to stop sending the two parent IDs.
 
 ### APM (OpenTelemetry) settings
 
