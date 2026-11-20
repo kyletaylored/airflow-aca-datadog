@@ -245,11 +245,9 @@ The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too,
 | DAG | Shows |
 |---|---|
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. The tasks report the same datasets, so the DAG's node in the lineage graph connects to them. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
-| `aca_jobs_pipeline` | Parallel fan-out of N shards over the sample job. |
-| `aca_jobs_example` | A single ACA Job run with overrides. |
 | `contoso_orders` | Optional, with a one-time `contoso_dw_bootstrap` DAG that creates its tables. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md), which also has the Contoso team's story and five demo scenarios. |
 
-The first three run every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
+`contoso_sales` runs every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
 
 The [persona site](https://kyletaylored.com/airflow-aca-datadog/) teaches the same pipeline by role: one module for each of the five people who run it, with the problem in their part and the Datadog tools that find the cause. Its source is in [`site/`](site/).
 
@@ -283,7 +281,7 @@ The deploy assigns the Airflow managed identity a role on the resource group, wh
 | `DD_SITE` | `datadoghq.com` | Datadog site (`us3.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`, …) |
 | `DD_ENV` | `airflow-aca` | Datadog `env` tag and the OpenLineage namespace |
 | `TELEMETRY_SIGNALS` | `traces,metrics,logs` | This repo's setting (not a Datadog or OTel variable): which OTel signals Airflow emits and the agent forwards |
-| `DEMO_DAG_SCHEDULE` | `*/5 * * * *` | Schedule for the demo DAGs (empty string for manual-only) |
+| `DEMO_DAG_SCHEDULE` | `*/5 * * * *` | Schedule for `contoso_sales` (empty string for manual-only) |
 | `RESOURCE_TAGS` | _(empty)_ | Extra tags on every resource, e.g. `team=data,owner=me` |
 | `ASSIGN_JOBS_ROLE` | `true` | `false` skips the managed identity's role assignment |
 | `ENABLE_DATA_PIPELINE`, `DD_POSTGRES_PASSWORD` | `false`, _(empty)_ | The optional [data pipeline demo](docs/data-pipeline-demo.md) and the password for its Agent's Postgres role |
