@@ -38,6 +38,21 @@ az storage file upload-batch \
   --source "$ROOT/airflow/dags" \
   --pattern "*.py" --only-show-errors 1>/dev/null
 
+# upload-batch only adds and overwrites, so a DAG file deleted from the repo would
+# keep running. Delete the top-level DAG files on the share that the repo no
+# longer has (packages such as contoso_dw/ are left alone).
+for name in $(az storage file list \
+  --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
+  --share-name "$FILE_SHARE_NAME" --path dags --exclude-dir \
+  --query "[?ends_with(name, '.py')].name" -o tsv --only-show-errors); do
+  if [ ! -f "$ROOT/airflow/dags/$name" ]; then
+    echo "Removing dags/$name (no longer in the repo)"
+    az storage file delete \
+      --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
+      --share-name "$FILE_SHARE_NAME" --path "dags/$name" --only-show-errors 1>/dev/null
+  fi
+done
+
 az storage file upload-batch \
   --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$KEY" \
   --destination "$FILE_SHARE_NAME/plugins" \
