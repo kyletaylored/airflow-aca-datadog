@@ -6,7 +6,18 @@ This is optional. The [README](../README.md#deployment) covers the first deploy 
 |---|---|
 | `infra/**`, `azure.yaml` | `azd provision`: the Bicep deployment, then the DAG and plugin upload, then a Postgres restart if a server setting is waiting for one |
 | `airflow/dags/**`, `airflow/plugins/**`, `scripts/upload-dags.sh` | The DAG and plugin upload only |
+| `airflow/plugins/**` (with either of the above) | After the upload, a restart of the DAG processor, scheduler and triggerer |
 | `services/**` | The same upload, then a restart of the order-stream services when `ENABLE_ORDER_STREAM` is `true` |
+
+The Airflow apps import the plugins (the ACA Jobs operator and its trigger) once, when they start. Until they restart, they keep the old operator, and a DAG that passes the operator a new argument fails to import. Restarting the scheduler cuts off the tasks running in its container, which Airflow retries if they have retries left; deferred tasks wait in the triggerer and aren't affected. After uploading changed plugins by hand with `scripts/upload-dags.sh`, restart the same three apps (`aflo` is the default `NAME_PREFIX`):
+
+```bash
+RG=$(azd env get-value AZURE_RESOURCE_GROUP)
+for app in dag-processor scheduler triggerer; do
+  rev=$(az containerapp show -g "$RG" -n "aflo-$app" --query properties.latestRevisionName -o tsv)
+  az containerapp revision restart -g "$RG" -n "aflo-$app" --revision "$rev"
+done
+```
 
 The workflow also passes the repository and the merged commit (`GIT_REPOSITORY_URL` and `GIT_COMMIT_SHA`), so Datadog's [Source Code Integration](https://docs.datadoghq.com/source_code/) links each service to its code. The Airflow apps pick up a new commit only on an `infra` deploy, and the order-stream services only when they restart. A DAG upload leaves the running apps on the commit of the last `infra` deploy. To do the same from your own machine, set both before `azd up`:
 
@@ -17,7 +28,7 @@ azd env set GIT_COMMIT_SHA     "$(git rev-parse HEAD)"
 
 Before anything reaches Azure, the workflow runs the CI checks (lint, tests and the Bicep build) against the merged commit. If they fail, nothing is deployed.
 
-You can also run it by hand from the Actions tab and pick `dags` or `infra`. A manual run never restarts the order-stream services.
+You can also run it by hand from the Actions tab and pick `dags` or `infra`. A manual run never restarts the order-stream services, and always restarts the three Airflow apps, since it has no diff to tell whether the plugins changed.
 
 The workflow signs in to Azure with OpenID Connect, so no Azure credential is stored in GitHub. It reuses the resource group and azd environment from your first `azd up`. One-time setup, run from the checkout that has that azd environment:
 
