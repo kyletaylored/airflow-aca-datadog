@@ -230,7 +230,7 @@ export const monitors: Record<string, Monitor> = {
     schedule: "5, 20, 35 and 50 past the hour",
     message:
       "raw.orders no longer matches its agreed columns: a column was added, removed or renamed (normally 0 differences). A field the storefront starts sending lands here first, and a rename or removal breaks staging_orders on its next run. Likely causes in the demo: the schema_drift chaos switch (a new promo_code column) or the breaking_schema switch (amount_cents renamed). Agree the change with the order processor's owner, then update the agreed columns in this monitor's SQL.",
-    note: "It reads PostgreSQL's own catalog of columns after every run, so it catches a change that lasts only minutes, which Datadog's schema change monitor can miss between collections of schema metadata. An added column, as schema_drift makes, breaks nothing, so no other monitor notices it. A rename counts twice, once for the missing name and once for the new one: under breaking_schema, the job failure monitor reports that staging_orders failed, and this one reports which column changed.",
+    note: "It reads PostgreSQL's own catalog of columns after every run, so it catches a change that lasts only minutes, which Datadog's schema change monitor can miss between collections of schema metadata. An added column, as schema_drift makes, breaks nothing, so apart from Rajesh's raw schema change monitor, no other monitor notices it. A rename counts twice, once for the missing name and once for the new one: under breaking_schema, the job failure monitor reports that staging_orders failed, and this one reports which column changed.",
   },
   schemaChanges: {
     id: "schemaChanges",
