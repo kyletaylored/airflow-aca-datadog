@@ -1,0 +1,394 @@
+# Datadog Software Catalog definitions for this demo (schema v3).
+#
+# Datadog's GitHub integration reads this file from the repository and links each
+# entity to its code. Every metadata.name is the service name Datadog already sees
+# in env:ese-tola-airflow-aca, so the definitions attach to the existing APM and
+# Data Jobs Monitoring entries rather than creating new ones.
+#
+# One file at the root, not one per directory: the services share directories
+# (airflow/dags holds every DAG, services/ holds both stream services and their
+# shared module), and a single file keeps the system and its components together.
+# Schema: https://github.com/DataDog/schema/tree/main/service-catalog/v3
+apiVersion: v3
+kind: system
+metadata:
+  name: airflow-aca
+  displayName: Airflow on Azure Container Apps
+  description: Contoso's Airflow 3 deployment on Azure Container Apps, with the pipelines it runs and the order stream that feeds them, reporting to Datadog through OpenTelemetry, the ACA managed agent and OpenLineage.
+  links:
+    - name: Source
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog
+    - name: README
+      type: doc
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/README.md
+    - name: Data pipeline demo
+      type: doc
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md
+    - name: Infrastructure (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+spec:
+  lifecycle: production
+  tier: "1"
+  components:
+    - service:airflow-aca-api-server
+    - service:airflow-aca-scheduler
+    - service:airflow-aca-triggerer
+    - service:airflow-aca-dag-processor
+    - service:contoso_sales
+    - service:contoso_store_job
+    - service:contoso_orders
+    - service:contoso_dw_bootstrap
+    - service:contoso-storefront
+    - service:order-processor
+    - service:order_processor
+---
+# The four Airflow apps. Bicep sets each one's OTEL_SERVICE_NAME; they run the
+# stock apache/airflow image with this repo's DAGs and plugins from the share.
+apiVersion: v3
+kind: service
+metadata:
+  name: airflow-aca-api-server
+  displayName: Airflow API server
+  description: Airflow 3 API server and UI, and the Execution API the other Airflow components report through.
+  links:
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+    - name: Plugins
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/plugins
+  tags:
+    - component:airflow
+spec:
+  lifecycle: production
+  tier: "1"
+  type: web
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - infra/main.bicep
+        - airflow/plugins/**
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: airflow-aca-scheduler
+  displayName: Airflow scheduler
+  description: Airflow 3 scheduler (LocalExecutor), which also runs the DAGs' tasks, including the ACA Jobs operator's ARM calls.
+  links:
+    - name: DAGs
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/dags
+    - name: ACA Jobs operator
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/plugins/operators
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:airflow
+spec:
+  lifecycle: production
+  tier: "1"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/**
+        - airflow/plugins/**
+        - infra/main.bicep
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: airflow-aca-triggerer
+  displayName: Airflow triggerer
+  description: Airflow 3 triggerer, which polls ARM for the ACA job executions that deferred tasks wait on.
+  links:
+    - name: ACA Jobs trigger
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/plugins/triggers
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:airflow
+spec:
+  lifecycle: production
+  tier: "2"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/plugins/**
+        - infra/main.bicep
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: airflow-aca-dag-processor
+  displayName: Airflow DAG processor
+  description: Airflow 3 DAG processor, which parses the DAG files on the Azure Files share. It sends logs but no spans.
+  links:
+    - name: DAGs
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/dags
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:airflow
+spec:
+  lifecycle: production
+  tier: "1"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/**
+        - airflow/plugins/**
+        - infra/main.bicep
+---
+# Data Jobs Monitoring reports each DAG, and each OpenLineage job namespace
+# prefix, as a service of its own name.
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso_sales
+  displayName: contoso_sales DAG
+  description: The main demo DAG. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total.
+  links:
+    - name: DAG
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/airflow/dags/contoso_sales_dag.py
+  tags:
+    - component:dag
+spec:
+  lifecycle: production
+  tier: "2"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/contoso_sales_dag.py
+        - airflow/plugins/operators/**
+        - airflow/plugins/triggers/**
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso_store_job
+  displayName: Contoso store job
+  description: The ACA Job that contoso_sales runs once per store and for the company total. Each execution reports its own OpenLineage run, nested under its Airflow task.
+  links:
+    - name: Job code
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/airflow/dags/jobs/contoso_store_job.py
+    - name: ACA Job (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:aca-job
+spec:
+  lifecycle: production
+  tier: "2"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/jobs/**
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso_orders
+  displayName: contoso_orders DAG
+  description: The data pipeline DAG. Loads the order stream's landed files into a Postgres medallion (raw, staging, marts) with SQL tasks.
+  links:
+    - name: DAG
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/airflow/dags/contoso_orders_dag.py
+    - name: SQL and loader
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/tree/main/airflow/dags/contoso_dw
+    - name: Data pipeline demo
+      type: doc
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md
+  tags:
+    - component:dag
+spec:
+  lifecycle: production
+  tier: "1"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/contoso_orders_dag.py
+        - airflow/dags/contoso_dw/**
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso_dw_bootstrap
+  displayName: contoso_dw_bootstrap DAG
+  description: One-time DAG that creates the contoso_dw tables, the Metabase role and the Database Monitoring setup.
+  links:
+    - name: DAG
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/airflow/dags/contoso_dw_bootstrap_dag.py
+  tags:
+    - component:dag
+spec:
+  lifecycle: production
+  tier: "3"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/contoso_dw_bootstrap_dag.py
+        - airflow/dags/contoso_dw/**
+---
+# The order stream: two Container Apps running services/ under ddtrace-run.
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso-storefront
+  displayName: Contoso storefront
+  description: Generates orders and produces them to Event Hubs' Kafka endpoint.
+  links:
+    - name: Service code
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/services/storefront.py
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:order-stream
+spec:
+  lifecycle: production
+  tier: "2"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - services/storefront.py
+        - services/contoso_stream.py
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: order-processor
+  displayName: Order processor
+  description: Consumes orders from Event Hubs and lands them in ADLS Gen2 for contoso_orders to load.
+  links:
+    - name: Service code
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/services/order_processor.py
+    - name: Container App (Bicep)
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/infra/main.bicep
+  tags:
+    - component:order-stream
+spec:
+  lifecycle: production
+  tier: "1"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - services/order_processor.py
+        - services/contoso_stream.py
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: order_processor
+  displayName: order_processor.land_orders job
+  description: The OpenLineage job (order_processor.land_orders) that order-processor reports for each batch it lands, so lineage runs from the Kafka topic to ADLS.
+  links:
+    - name: Service code
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/services/order_processor.py
+  tags:
+    - component:order-stream
+spec:
+  lifecycle: production
+  tier: "1"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - services/order_processor.py
+        - services/contoso_stream.py
