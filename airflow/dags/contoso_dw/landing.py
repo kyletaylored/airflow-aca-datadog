@@ -198,7 +198,9 @@ def _span(step: SchemaStep):
         # Datadog takes the span's resource from this.
         "resource.name": f"ALTER TABLE raw.orders ({step.switch})",
         "contoso.chaos.switch": step.switch,
-        "contoso.column": step.column,
+        # Under contoso.column, not on it: Datadog nests dotted names, so a value at
+        # contoso.column would collide with contoso.column.before / .after.
+        "contoso.column.name": step.column,
         "contoso.column.wanted": "present" if step.present else "absent",
     }
     with _tracer().start_as_current_span(
