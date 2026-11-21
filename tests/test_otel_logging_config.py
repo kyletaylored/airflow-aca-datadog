@@ -13,9 +13,14 @@ class Capture(logging.Handler):
     def __init__(self):
         super().__init__(level=logging.INFO)
         self.records = []
+        self.spans = []
 
     def emit(self, record):
+        from opentelemetry.trace import get_current_span
+
         self.records.append(record)
+        # What the OTel handler would link the line to.
+        self.spans.append(get_current_span().get_span_context())
 
 
 @pytest.fixture
@@ -56,6 +61,24 @@ def test_exports_a_structlog_line_with_its_attributes(plugin):
     assert record.dag_id == "contoso_orders"
     assert record.__dict__["dd.service"] == "airflow-test"
     assert not hasattr(record, "timestamp")
+
+
+def test_links_a_line_to_the_span_it_names(plugin):
+    module, capture = plugin
+    trace_id, span_id = "0af7651916cd43dd8448eb211c80319c", "b7ad6b7169203331"
+    event = {"event": "dropped a column", "level": "info", "logger": "airflow.task", "trace_id": trace_id, "span_id": span_id}
+    module.otel_processor(None, "info", dict(event))
+    (record,), (span,) = capture.records, capture.spans
+    assert (span.trace_id, span.span_id) == (int(trace_id, 16), int(span_id, 16))
+    assert not hasattr(record, "trace_id")
+
+
+def test_ignores_span_fields_that_arent_ids(plugin):
+    module, capture = plugin
+    module.otel_processor(None, "info", {"event": "x", "level": "info", "logger": "airflow.task", "trace_id": "not-hex", "span_id": "1"})
+    (record,), (span,) = capture.records, capture.spans
+    assert not span.is_valid
+    assert record.trace_id == "not-hex"
 
 
 def test_keeps_the_stdlib_records_source_location(plugin):

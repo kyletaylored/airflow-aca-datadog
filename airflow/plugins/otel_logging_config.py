@@ -4,7 +4,7 @@ Used via ``AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS=otel_logging_config.LOGGING_CO
 
 Airflow emits OTel traces and metrics natively, but not logs. Airflow 3 also leaves no room for a plain logging handler: its ``configure_logging`` replaces the root logger's handlers and the ``airflow`` logger's config, and most of its code (everything built on ``LoggingMixin``) logs through structlog, which writes straight to stdout without passing stdlib handlers.
 
-What every line does pass through is the processor chain Airflow builds in ``structlog_processors``: structlog events run it directly, and stdlib records run it in the formatter of Airflow's console handler. Importing this module (which Airflow does to read ``LOGGING_CONFIG``, just before it configures logging) adds one processor to that chain. The processor hands each line to an OTel ``LoggingHandler``, which exports over OTLP using the standard ``OTEL_EXPORTER_OTLP_*`` env vars (on Azure Container Apps: the managed agent's gRPC endpoint). Lines logged inside a span carry its trace and span ids, so Datadog correlates logs with traces.
+What every line does pass through is the processor chain Airflow builds in ``structlog_processors``: structlog events run it directly, and stdlib records run it in the formatter of Airflow's console handler. Importing this module (which Airflow does to read ``LOGGING_CONFIG``, just before it configures logging) adds one processor to that chain. The processor hands each line to an OTel ``LoggingHandler``, which exports over OTLP using the standard ``OTEL_EXPORTER_OTLP_*`` env vars (on Azure Container Apps: the managed agent's gRPC endpoint). Lines logged inside a span carry its trace and span ids, so Datadog correlates logs with traces. A line logged elsewhere can name its span in ``trace_id`` and ``span_id`` fields instead.
 
 Each record also gets a ``dd.service`` attribute set to ``OTEL_SERVICE_NAME``. Through the Container Apps managed agent, Datadog leaves a log's service empty: it keeps ``service.name`` only as a nested attribute. ``dd.service`` is what fills it.
 """
@@ -33,6 +33,8 @@ _LEVELS = {
 }
 # Event keys that structlog or Airflow use for themselves, rather than as log attributes.
 _RESERVED = {"event", "level", "logger", "logger_name", "timestamp", "exc_info", "exception", "stack", "positional_args"}
+# Fields a line can name its span in (see _named_span); exported as the line's ids, not as attributes.
+_SPAN_FIELDS = {"trace_id", "span_id"}
 # OTel's own logs go through the same chain; exporting them could loop.
 _SKIP_LOGGERS = ("opentelemetry", "grpc")
 
@@ -86,6 +88,25 @@ def _exc_info(value):
     return None
 
 
+def _named_span(event_dict):
+    """The span a line names in ``trace_id`` / ``span_id`` fields (hex), or None.
+
+    The OTel handler links a line to the span that's current when it's handled. A line about a span that has ended, or one exported by another process (Airflow 3's task supervisor exports its task's lines), can name the span instead.
+    """
+    trace_id, span_id = event_dict.get("trace_id"), event_dict.get("span_id")
+    if not (isinstance(trace_id, str) and isinstance(span_id, str)):
+        return None
+    try:
+        from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
+        span_context = SpanContext(
+            int(trace_id, 16), int(span_id, 16), is_remote=True, trace_flags=TraceFlags(TraceFlags.SAMPLED)
+        )
+    except (ImportError, ValueError):
+        return None
+    return NonRecordingSpan(span_context) if span_context.is_valid else None
+
+
 def otel_processor(logger, method_name, event_dict):
     """structlog processor: export the line over OTLP, and pass it on unchanged."""
     name = str(event_dict.get("logger") or getattr(logger, "name", None) or "airflow")
@@ -108,12 +129,23 @@ def otel_processor(logger, method_name, event_dict):
             exc_info,
             func=source.funcName if source else None,
         )
+        span = _named_span(event_dict)
+        skip = _RESERVED | _SPAN_FIELDS if span is not None else _RESERVED
         for key, value in event_dict.items():
-            if key.startswith("_") or key in _RESERVED or key in record.__dict__:
+            if key.startswith("_") or key in skip or key in record.__dict__:
                 continue
             if isinstance(value, (str, bool, int, float)):
                 record.__dict__[key] = value
-        _otel_handler().handle(record)
+        if span is None:
+            _otel_handler().handle(record)
+        else:
+            from opentelemetry import context, trace
+
+            token = context.attach(trace.set_span_in_context(span))
+            try:
+                _otel_handler().handle(record)
+            finally:
+                context.detach(token)
     except Exception:  # noqa: BLE001 - never break Airflow's logging
         pass
     finally:

@@ -254,6 +254,12 @@ DROP_PROMO_CODE = "ALTER TABLE raw.orders DROP COLUMN IF EXISTS promo_code"
 KEEP_PROMO_CODE = "SELECT 1"
 PURGE_OLD_ORDERS = "DELETE FROM raw.orders WHERE ordered_at < now() - interval '14 days'"
 BREAK_AMOUNT_COLUMN = "ALTER TABLE raw.orders RENAME COLUMN amount_cents TO amount_minor"
+# The columns raw.orders has right now. The stream load runs it around each ALTER TABLE
+# above, to check that the statement did what it was meant to.
+RAW_ORDERS_COLUMNS = (
+    "SELECT column_name FROM information_schema.columns"
+    " WHERE table_schema = 'raw' AND table_name = 'orders'"
+)
 RESTORE_AMOUNT_COLUMN = """
 DO $$
 BEGIN
