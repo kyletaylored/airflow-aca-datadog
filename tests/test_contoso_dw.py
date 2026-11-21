@@ -351,10 +351,21 @@ def test_contoso_orders_dag_shape(monkeypatch):
     assert dag.params["memory_pressure"] is False
 
 
+def test_contoso_schema_flip_dag(monkeypatch):
+    pytest.importorskip("airflow.sdk")
+    monkeypatch.setenv("AIRFLOW_CONN_CONTOSO_DW", "postgresql://u:p@db.example.com:5432/contoso_dw")
+    monkeypatch.delenv("AIRFLOW_SCHEMA_FLIP_SCHEDULE", raising=False)
+    sys.modules.pop("contoso_schema_flip_dag", None)
+    module = importlib.import_module("contoso_schema_flip_dag")
+    dag = next(v for v in vars(module).values() if isinstance(v, module.DAG))
+    assert [t.task_id for t in dag.tasks] == ["flip_promo_code"]
+    assert dag.schedule == "0 0,2,6,8,12,14,18,20 * * *"
+
+
 def test_dags_are_skipped_without_the_pipeline(monkeypatch):
     pytest.importorskip("airflow.sdk")
     monkeypatch.delenv("AIRFLOW_CONN_CONTOSO_DW", raising=False)
-    for name in ("contoso_orders_dag", "contoso_dw_bootstrap_dag"):
+    for name in ("contoso_orders_dag", "contoso_dw_bootstrap_dag", "contoso_schema_flip_dag"):
         sys.modules.pop(name, None)
         module = importlib.import_module(name)
         assert not [v for v in vars(module).values() if isinstance(v, module.DAG)]

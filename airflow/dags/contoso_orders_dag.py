@@ -20,8 +20,10 @@ tables. Trigger with chaos params to break something on purpose:
     volume_drop     5% of the usual orders (row-count monitor)
     skip_load       no new orders (freshness monitor)
     schema_drift    raw.orders gains a promo_code column (schema change). It
-                    stays until a run with schema_drift set to false; runs
-                    that leave it unset, like the scheduled ones, don't touch it
+                    stays until a run with schema_drift set to false, or until
+                    contoso_schema_flip drops it; runs that leave it unset, like
+                    the scheduled ones, don't touch it. contoso_schema_flip also
+                    adds the column for 2 hours in every 6 on its own
     breaking_schema raw.orders.amount_cents is renamed after the load, so
                     staging_orders fails (Job monitor) and the marts go stale
     refund_bug      the store sales mart counts every Denver order as a refund

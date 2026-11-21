@@ -8,7 +8,7 @@ import json
 import os
 import random
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +20,7 @@ for _path in (os.path.join(_ROOT, "services"), os.path.join(_ROOT, "airflow", "d
 
 import contoso_stream as stream  # noqa: E402
 import order_processor  # noqa: E402
-from contoso_dw import landing  # noqa: E402
+from contoso_dw import landing, schema_flip  # noqa: E402
 from contoso_dw import sql as dw  # noqa: E402
 
 # --- names that must agree for lineage to join -----------------------------------
@@ -173,13 +173,16 @@ class _Cursor:
 class _Conn:
     def __init__(self, ingested=(), columns=RAW_ORDERS, **cursor):
         self.cur = _Cursor(set(ingested), columns, **cursor)
-        self.committed = False
+        self.committed = self.closed = False
 
     def cursor(self):
         return self.cur
 
     def commit(self):
         self.committed = True
+
+    def close(self):
+        self.closed = True
 
 
 class _Container:
@@ -366,3 +369,70 @@ def test_chaos_reads_dag_params():
     assert landing.Chaos.from_params({"null_customers": True, "interval_minutes": 15}) == landing.Chaos(
         null_customers=True
     )
+
+
+# --- contoso_schema_flip -----------------------------------------------------------
+
+
+def _utc(hour):
+    return datetime(2026, 11, 21, hour, 0, tzinfo=timezone.utc)
+
+
+def test_flip_schedule_runs_at_each_change():
+    assert schema_flip.SCHEDULE == "0 0,2,6,8,12,14,18,20 * * *"
+    hours = [int(h) for h in schema_flip.SCHEDULE.split()[1].split(",")]
+    for hour in range(24):
+        changes = schema_flip.step_at(_utc(hour)) != schema_flip.step_at(_utc((hour - 1) % 24))
+        assert changes == (hour in hours), hour
+
+
+def test_promo_code_is_on_for_the_first_2_hours_of_every_6():
+    on = {h for h in range(24) if schema_flip.step_at(_utc(h)) is schema_flip.ON}
+    assert on == {0, 1, 6, 7, 12, 13, 18, 19}
+    # Read in UTC: 01:30 in Denver (UTC-7) is 08:30 UTC, so the column is off.
+    denver = timezone(timedelta(hours=-7))
+    assert schema_flip.step_at(datetime(2026, 11, 21, 1, 30, tzinfo=denver)) is schema_flip.OFF
+
+
+def test_flip_adds_then_drops_the_column():
+    conn = _Conn()
+    change = schema_flip.flip(conn, _utc(6))
+    assert conn.cur.statements[0] == (schema_flip.LOCK_TIMEOUT, None)
+    assert "promo_code" in conn.cur.columns
+    assert change.describe() == "schema flip on: added the promo_code column to raw.orders"
+    assert conn.committed
+
+    change = schema_flip.flip(conn, _utc(8))
+    assert "promo_code" not in conn.cur.columns
+    assert change.describe() == "schema flip off: dropped the promo_code column from raw.orders"
+
+
+def test_flip_leaves_the_column_when_its_already_right():
+    # A retry, or a schema_drift run that got there first.
+    change = schema_flip.flip(_Conn(columns=RAW_ORDERS | {"promo_code"}), _utc(7))
+    assert change.outcome == "unchanged"
+
+
+def test_a_failed_flip_isnt_committed():
+    conn = _Conn(fail=[dw.ADD_PROMO_CODE])
+    with pytest.raises(landing.SchemaChangeFailed, match="schema flip on: the ALTER TABLE failed"):
+        schema_flip.flip(conn, _utc(0))
+    assert not conn.committed
+
+
+def test_flip_operator_flips_for_the_runs_slot(monkeypatch):
+    pytest.importorskip("airflow.sdk")
+    from contoso_dw import landing_operator
+
+    conn = _Conn()
+    hook = SimpleNamespace(get_conn=lambda: conn)
+    monkeypatch.setitem(
+        sys.modules,
+        "airflow.providers.postgres.hooks.postgres",
+        SimpleNamespace(PostgresHook=lambda postgres_conn_id: hook),
+    )
+    operator = landing_operator.FlipPromoCodeOperator(task_id="flip_promo_code", conn_id="contoso_dw")
+    # Due at 06:00, so it adds the column whenever it starts.
+    assert operator.execute({"dag_run": SimpleNamespace(run_after=_utc(6))}) == "added"
+    assert "promo_code" in conn.cur.columns
+    assert conn.committed and conn.closed

@@ -248,8 +248,9 @@ The sample ACA Job sends no OpenTelemetry. ACA injects the endpoint into it too,
 |---|---|
 | `contoso_sales` | The main demo. Fans out one ACA Job run per store, gates on every store reporting, then rolls up a company total. Each job run reports its own lineage, so DJM shows the store runs nested under their tasks and lineage from each store's sales dataset into the total. The tasks report the same datasets, so the DAG's node in the lineage graph connects to them. Trigger with `{"chaos": true}` to make one store fail once and recover on retry. |
 | `contoso_orders` | Optional, with a one-time `contoso_dw_bootstrap` DAG that creates its tables. A Postgres medallion (`raw` → `staging` → `marts`) built with SQL tasks, so OpenLineage reports table-level lineage and Data Observability monitors the same tables. With the optional order stream, it loads orders that a storefront sent through Event Hubs, so lineage starts at the Kafka topic. See [the data pipeline demo](docs/data-pipeline-demo.md), which also has the Contoso team's story and five demo scenarios. |
+| `contoso_schema_flip` | Optional, with `contoso_orders`. Adds a `promo_code` column to `raw.orders` at 00:00, 06:00, 12:00 and 18:00 UTC and drops it 2 hours later, so Data Observability's schema monitors alert and recover four times a day without a manual run. |
 
-`contoso_sales` runs every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has data shortly after the deploy. `contoso_orders` runs every 15 minutes, and exists only when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
+`contoso_sales` runs every 5 minutes by default (`DEMO_DAG_SCHEDULE`), so Datadog has data shortly after the deploy. `contoso_orders` runs every 15 minutes, and, with `contoso_schema_flip`, exists only when the data pipeline is turned on (`ENABLE_DATA_PIPELINE=true`).
 
 The [persona site](https://kyletaylored.com/airflow-aca-datadog/) teaches the same pipeline by role: one module for each of the five people who run it, with the problem in their part and the Datadog tools that find the cause. Its source is in [`site/`](site/).
 

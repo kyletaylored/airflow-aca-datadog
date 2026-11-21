@@ -9,7 +9,8 @@ had a bug:
     volume_drop     only 5% of each batch is loaded (the rest is lost)
     skip_load       nothing is loaded; the blobs wait for the next normal run
     schema_drift    raw.orders gains a promo_code column, until a run sets it to
-                    false; when it's unset, the load doesn't touch the column
+                    false or contoso_schema_flip drops it; when it's unset, the load
+                    doesn't touch the column
     breaking_schema after the load, amount_cents is renamed to amount_minor, so
                     staging_orders fails; the next run renames it back first
 
