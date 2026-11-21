@@ -341,6 +341,15 @@ def test_each_alter_table_gets_a_span_that_the_log_line_names(monkeypatch):
     assert drift.name == "ALTER TABLE raw.orders"
     assert drift.attributes["db.statement"] == dw.ADD_PROMO_CODE
     assert drift.attributes["contoso.schema.outcome"] == "added"
+    assert {k: v for k, v in drift.attributes.items() if k.startswith("contoso.column")} == {
+        "contoso.column.name": "promo_code",
+        "contoso.column.wanted": "present",
+        "contoso.column.before": "absent",
+        "contoso.column.after": "present",
+    }
+    # No attribute is both a value and the parent of others, which Datadog can't keep.
+    names = set(drift.attributes)
+    assert not any(other.startswith(name + ".") for name in names for other in names)
     assert restore.attributes["contoso.schema.outcome"] == "unchanged"
     assert change.span_id == format_span_id(drift.context.span_id)
 
