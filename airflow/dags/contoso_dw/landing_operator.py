@@ -49,18 +49,38 @@ class LoadLandedOrdersOperator(BaseOperator):
         conn = PostgresHook(postgres_conn_id=self.conn_id).get_conn()
         chaos = landing.Chaos.from_params(context["params"])
         try:
-            stats = landing.load_landed_orders(conn, container, chaos)
+            stats, changes = landing.load_landed_orders(conn, container, chaos)
+        except landing.SchemaChangeFailed as failed:
+            # Closing without a commit rolls the load back.
+            self._log_in_span("error", f"{failed}; nothing was loaded", failed.trace_id, failed.span_id)
+            raise
         finally:
             conn.close()
         self.log.info(
             "Loaded %(orders)s orders from %(blobs)s landing blobs; %(waiting)s still waiting",
             stats,
         )
-        # The load has committed, so these changes to raw.orders' columns are in place.
-        for change in landing.schema_changes(chaos):
-            self.log.info(change)
+        # The load has committed, and each change was checked against information_schema.
+        for change in changes:
+            self._log_in_span("info", change.describe(), change.trace_id, change.span_id)
         self._loaded_orders = stats["orders"]
         return stats
+
+    def _log_in_span(self, level: str, message: str, trace_id: str | None, span_id: str | None) -> None:
+        """Log a line that Datadog links to the ALTER TABLE's span.
+
+        The span has ended by now, and the line may be exported from another process
+        (in Airflow 3, the task's supervisor), so it names the span in fields that
+        otel_logging_config exports it with.
+        """
+        log = getattr(self.log, level)
+        if trace_id and span_id:
+            try:
+                log(message, trace_id=trace_id, span_id=span_id)
+                return
+            except TypeError:  # Airflow 2's stdlib logger takes no fields
+                pass
+        log(message)
 
     def get_openlineage_facets_on_complete(self, task_instance):
         from airflow.providers.openlineage.extractors import OperatorLineage
