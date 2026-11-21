@@ -43,6 +43,7 @@ spec:
     - service:contoso_sales
     - service:contoso_store_job
     - service:contoso_orders
+    - service:contoso_schema_flip
     - service:contoso_dw_bootstrap
     - service:contoso-storefront
     - service:order-processor
@@ -275,6 +276,37 @@ datadog:
       paths:
         - airflow/dags/contoso_orders_dag.py
         - airflow/dags/contoso_dw/**
+---
+apiVersion: v3
+kind: service
+metadata:
+  name: contoso_schema_flip
+  displayName: contoso_schema_flip DAG
+  description: Adds a promo_code column to raw.orders for 2 hours in every 6, so the schema change monitors have something to show.
+  links:
+    - name: DAG
+      type: repo
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/airflow/dags/contoso_schema_flip_dag.py
+    - name: Data pipeline demo
+      type: doc
+      provider: github
+      url: https://github.com/kyletaylored/airflow-aca-datadog/blob/main/docs/data-pipeline-demo.md
+  tags:
+    - component:dag
+spec:
+  lifecycle: production
+  tier: "2"
+  languages:
+    - python
+  componentOf:
+    - system:airflow-aca
+datadog:
+  codeLocations:
+    - repositoryURL: https://github.com/kyletaylored/airflow-aca-datadog.git
+      paths:
+        - airflow/dags/contoso_schema_flip_dag.py
+        - airflow/dags/contoso_dw/schema_flip.py
 ---
 apiVersion: v3
 kind: service

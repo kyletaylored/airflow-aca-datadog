@@ -244,7 +244,8 @@ INGEST_CUSTOMERS = [upsert_customers("0.02")]
 #   volume_drop    -> 5% of the normal volume
 #   skip_load      -> no orders at all
 #   schema_drift   -> raw.orders gains a promo_code column. It stays until a run sets
-#                     schema_drift to false; a run that leaves it unset doesn't touch it
+#                     schema_drift to false, or contoso_schema_flip drops it; a run
+#                     that leaves it unset doesn't touch it
 #   breaking_schema -> after the load, raw.orders.amount_cents is renamed to
 #                     amount_minor, so staging_orders fails. The next run renames it
 #                     back before it loads.
