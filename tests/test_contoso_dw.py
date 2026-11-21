@@ -359,7 +359,7 @@ def test_contoso_schema_flip_dag(monkeypatch):
     module = importlib.import_module("contoso_schema_flip_dag")
     dag = next(v for v in vars(module).values() if isinstance(v, module.DAG))
     assert [t.task_id for t in dag.tasks] == ["flip_promo_code"]
-    assert "0,2,6,8,12,14,18,20" in str(dag.timetable.summary)
+    assert dag.schedule == "0 0,2,6,8,12,14,18,20 * * *"
 
 
 def test_dags_are_skipped_without_the_pipeline(monkeypatch):
